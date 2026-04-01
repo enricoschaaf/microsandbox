@@ -498,16 +498,12 @@ impl Registry {
             };
 
             // OS must match.
-            if platform.os() != &oci_spec::image::Os::Other(self.platform.os.clone())
-                && format!("{}", platform.os()) != self.platform.os
-            {
+            if *platform.os() != self.platform.os {
                 continue;
             }
 
             // Architecture must match.
-            if platform.architecture() != &oci_spec::image::Arch::Other(self.platform.arch.clone())
-                && format!("{}", platform.architecture()) != self.platform.arch
-            {
+            if *platform.architecture() != self.platform.arch {
                 continue;
             }
 
@@ -807,7 +803,7 @@ mod tests {
     fn test_resolve_cached_pull_result_if_missing_uses_complete_cache() {
         let temp = tempdir().unwrap();
         let cache = GlobalCache::new(temp.path()).unwrap();
-        let reference: oci_client::Reference = "docker.io/library/alpine:latest".parse().unwrap();
+        let reference: oci_client::Reference = "docker.io/library/alpine".parse().unwrap();
         let metadata = write_cached_image_fixture(&cache, &reference, &[true, true]);
 
         let cached = resolve_cached_pull_result(
@@ -865,7 +861,7 @@ mod tests {
     fn test_pull_cached_uses_complete_cache() {
         let temp = tempdir().unwrap();
         let cache = GlobalCache::new(temp.path()).unwrap();
-        let reference: oci_client::Reference = "docker.io/library/alpine:latest".parse().unwrap();
+        let reference: oci_client::Reference = "docker.io/library/alpine".parse().unwrap();
         let metadata = write_cached_image_fixture(&cache, &reference, &[true]);
 
         let cached = super::Registry::pull_cached(
