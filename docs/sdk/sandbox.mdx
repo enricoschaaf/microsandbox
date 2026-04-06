@@ -144,7 +144,7 @@ let sb = Sandbox::builder("vm-sandbox")
 
 // Explicit filesystem type
 let sb = Sandbox::builder("vm-sandbox")
-    .image(|i| i.disk("./alpine.raw").fstype("ext4"))
+    .image_with(|i| i.disk("./alpine.raw").fstype("ext4"))
     .cpus(1)
     .memory(512)
     .create()
@@ -177,25 +177,95 @@ const sb2 = await Sandbox.create({
   With OCI images, microsandbox stacks layers and adds a copy-on-write overlay so sandboxes share the base. With disk images, the guest gets the block device directly, so there's no copy-on-write isolation between sandboxes using the same disk image. Each sandbox needs its own copy (or use QCOW2's built-in snapshot/backing file support).
 </Note>
 
-## Private registry
+## Registry
 
-Authenticate to private container registries and control when images are pulled.
+Configure authentication, TLS, and connection settings for OCI registries.
+
+### Private registry
+
+Authenticate to private container registries.
 
 <CodeGroup>
 ```rust Rust
 use microsandbox::{Sandbox, RegistryAuth, PullPolicy};
 
-// Explicit auth with pull policy
 let sb = Sandbox::builder("worker")
     .image("registry.corp.io/team/app:latest")
-    .registry_auth(RegistryAuth::Basic {
+    .registry(|r| r.auth(RegistryAuth::Basic {
         username: "deploy".into(),
         password: std::env::var("REGISTRY_PASSWORD")?,
-    })
+    }))
     .pull_policy(PullPolicy::Always)
     .create()
     .await?;
+```
 
+```typescript TypeScript
+import { PullPolicy, Sandbox } from 'microsandbox'
+
+const sb = await Sandbox.create({
+    name: "worker",
+    image: "private.registry.io/org/app:v1",
+    registry: { auth: { username: "deploy", password: process.env.REGISTRY_TOKEN! } },
+    pullPolicy: PullPolicy.Always,
+})
+```
+</CodeGroup>
+
+### Insecure registry
+
+Connect to a registry over plain HTTP (e.g. a local registry without TLS).
+
+<CodeGroup>
+```rust Rust
+let sb = Sandbox::builder("worker")
+    .image("localhost:5050/my-app:latest")
+    .registry(|r| r.insecure())
+    .create()
+    .await?;
+```
+
+```typescript TypeScript
+const sb = await Sandbox.create({
+    name: "worker",
+    image: "localhost:5050/my-app:latest",
+    registry: { insecure: true },
+})
+```
+</CodeGroup>
+
+### Custom CA certificates
+
+Trust additional CA certificates for registries using self-signed or internal CAs.
+
+<CodeGroup>
+```rust Rust
+let sb = Sandbox::builder("worker")
+    .image("registry.corp.io/team/app:latest")
+    .registry(|r| r.ca_certs(std::fs::read("/path/to/ca.pem")?))
+    .create()
+    .await?;
+```
+
+```typescript TypeScript
+const sb = await Sandbox.create({
+    name: "worker",
+    image: "registry.corp.io/team/app:latest",
+    registry: { caCertsPath: "/path/to/ca.pem" },
+})
+```
+</CodeGroup>
+
+<Tip>
+  For persistent registry settings that apply to all sandboxes, use `~/.microsandbox/config.json` instead. See [Registry TLS](/images/overview#registry-tls).
+</Tip>
+
+### Pull policies
+
+Control whether the SDK fetches the image from the registry.
+
+<CodeGroup>
+```rust Rust
 // Use cached image, never pull
 let sb = Sandbox::builder("offline")
     .image("python")
@@ -205,27 +275,14 @@ let sb = Sandbox::builder("offline")
 ```
 
 ```typescript TypeScript
-import { PullPolicy, Sandbox } from 'microsandbox'
-
-// Explicit auth with pull policy
-const sb = await Sandbox.create({
-    name: "worker",
-    image: "private.registry.io/org/app:v1",
-    registryAuth: { username: "deploy", password: process.env.REGISTRY_TOKEN! },
-    pullPolicy: PullPolicy.Always,
-})
-
 // Use cached image, never pull
-const sb2 = await Sandbox.create({
+const sb = await Sandbox.create({
     name: "offline",
     image: "python",
     pullPolicy: PullPolicy.Never,
 })
 ```
-
 </CodeGroup>
-
-Pull policies control whether the SDK fetches the image from the registry:
 
 | Policy | Behavior |
 |--------|----------|
