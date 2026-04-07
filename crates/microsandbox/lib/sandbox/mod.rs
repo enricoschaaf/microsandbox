@@ -18,6 +18,7 @@ mod types;
 use std::{path::Path, process::ExitStatus, sync::Arc};
 
 use bytes::Bytes;
+use microsandbox_image::Registry;
 use microsandbox_protocol::{
     exec::{ExecExited, ExecRequest, ExecRlimit, ExecStarted, ExecStderr, ExecStdin, ExecStdout},
     message::{Message, MessageType},
@@ -46,7 +47,7 @@ use self::exec::{ExecEvent, ExecHandle, ExecOptions, ExecSink, StdinMode};
 
 pub use crate::db::entity::sandbox::SandboxStatus;
 pub use attach::AttachOptionsBuilder;
-pub use builder::SandboxBuilder;
+pub use builder::{RegistryConfigBuilder, SandboxBuilder};
 pub use config::SandboxConfig;
 pub use exec::{ExecOptionsBuilder, ExecOutput, Rlimit, RlimitResource};
 pub use fs::{FsEntry, FsEntryKind, FsMetadata, FsReadStream, FsWriteSink, SandboxFs};
@@ -68,6 +69,13 @@ pub use types::{
 //--------------------------------------------------------------------------------------------------
 // Types
 //--------------------------------------------------------------------------------------------------
+
+/// Transient registry overrides from the SDK, merged with global config at pull time.
+pub(crate) struct RegistryOverrides {
+    pub auth: Option<microsandbox_image::RegistryAuth>,
+    pub insecure: bool,
+    pub ca_certs: Vec<Vec<u8>>,
+}
 
 /// A running sandbox.
 ///
@@ -188,13 +196,13 @@ impl Sandbox {
 
         // Resolve OCI images before spawning the sandbox process.
         if let RootfsSource::Oci(reference) = config.image.clone() {
-            let pull_result = pull_oci_image(
-                &reference,
-                config.pull_policy,
-                config.registry_auth.take(),
-                progress,
-            )
-            .await?;
+            let overrides = RegistryOverrides {
+                auth: config.registry_auth.clone(),
+                insecure: config.insecure,
+                ca_certs: config.ca_certs.clone(),
+            };
+            let pull_result =
+                pull_oci_image(&reference, config.pull_policy, overrides, progress).await?;
 
             // Merge image config defaults under user-provided config.
             config.merge_image_defaults(&pull_result.config);
@@ -1346,7 +1354,7 @@ pub(super) fn pid_is_alive(pid: i32) -> bool {
 async fn pull_oci_image(
     reference: &str,
     pull_policy: microsandbox_image::PullPolicy,
-    explicit_auth: Option<microsandbox_image::RegistryAuth>,
+    registry_overrides: RegistryOverrides,
     progress: Option<microsandbox_image::PullProgressSender>,
 ) -> MicrosandboxResult<microsandbox_image::PullResult> {
     let global = crate::config::config();
@@ -1363,9 +1371,7 @@ async fn pull_oci_image(
     // Warm runs spend most of their time outside the guest, so avoid
     // constructing the registry client when the image is already complete
     // in the local cache.
-    if let Some((result, metadata)) =
-        microsandbox_image::Registry::pull_cached(&cache, &image_ref, &options)?
-    {
+    if let Some((result, metadata)) = Registry::pull_cached(&cache, &image_ref, &options)? {
         if let Some(sender) = progress {
             let reference: std::sync::Arc<str> = reference.to_string().into();
             sender.send(microsandbox_image::PullProgress::Resolving {
@@ -1390,12 +1396,25 @@ async fn pull_oci_image(
         return Ok(result);
     }
 
-    let auth = match explicit_auth {
+    let auth = match registry_overrides.auth {
         Some(auth) => auth,
         None => global.resolve_registry_auth(image_ref.registry())?,
     };
 
-    let registry = microsandbox_image::Registry::with_auth(platform, cache, auth)?;
+    // Merge global config with SDK overrides.
+    let mut ca_certs = global.resolve_ca_certs().await?;
+    ca_certs.extend(registry_overrides.ca_certs);
+
+    let mut insecure_registries = global.insecure_registries();
+    if registry_overrides.insecure {
+        insecure_registries.push(image_ref.registry().to_string());
+    }
+
+    let registry = Registry::builder(platform, cache)
+        .auth(auth)
+        .extra_ca_certs(ca_certs)
+        .add_insecure_registries(insecure_registries)
+        .build()?;
 
     if let Some(sender) = progress {
         let task = registry.pull_with_sender(&image_ref, &options, sender);
