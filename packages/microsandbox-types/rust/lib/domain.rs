@@ -1005,6 +1005,9 @@ pub struct SandboxResources {
     /// Guest transparent huge-page policy selected at boot.
     #[serde(default, skip_serializing_if = "TransparentHugePagePolicy::is_madvise")]
     pub thp: TransparentHugePagePolicy,
+
+    /// Expose hardware virtualization to the guest (disabled by default).
+    pub nested_virt: bool,
 }
 
 /// Controls how Microsandbox places vCPU threads on host processors.
@@ -1808,6 +1811,7 @@ impl Default for SandboxResources {
             cpu_placement: CpuPlacement::Inherit,
             placement_profile: None,
             thp: TransparentHugePagePolicy::Madvise,
+            nested_virt: default_nested_virt(),
         }
     }
 }
@@ -1831,6 +1835,8 @@ impl<'de> Deserialize<'de> for SandboxResources {
             placement_profile: Option<String>,
             #[serde(default)]
             thp: TransparentHugePagePolicy,
+            #[serde(default = "default_nested_virt")]
+            nested_virt: bool,
         }
 
         let raw = RawResources::deserialize(deserializer)?;
@@ -1845,6 +1851,7 @@ impl<'de> Deserialize<'de> for SandboxResources {
             cpu_placement: raw.cpu_placement,
             placement_profile: raw.placement_profile,
             thp: raw.thp,
+            nested_virt: raw.nested_virt,
         })
     }
 }
@@ -2334,6 +2341,11 @@ impl TryFrom<&str> for RlimitResource {
 //--------------------------------------------------------------------------------------------------
 // Functions
 //--------------------------------------------------------------------------------------------------
+
+/// Default nested virtualization policy for local sandbox hosts.
+pub const fn default_nested_virt() -> bool {
+    false
+}
 
 fn default_sandbox_cpus() -> u8 {
     DEFAULT_SANDBOX_CPUS

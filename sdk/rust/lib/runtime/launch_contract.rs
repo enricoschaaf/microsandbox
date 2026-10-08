@@ -204,7 +204,13 @@ impl LaunchContract {
             return self.to_previous_version(launch);
         }
 
-        let value = serde_json::to_value(launch)?;
+        let mut value = serde_json::to_value(launch)?;
+        if !launch.nested_virt.unwrap_or(false) {
+            value
+                .as_object_mut()
+                .expect("launch config object")
+                .remove("nested_virt");
+        }
         #[cfg(feature = "net")]
         let value = {
             let mut value = value;
@@ -224,6 +230,11 @@ impl LaunchContract {
     }
 
     fn to_previous_version(self, launch: &LaunchConfig) -> MicrosandboxResult<Value> {
+        if launch.nested_virt.is_some_and(|enabled| {
+            enabled != cfg!(all(target_os = "linux", target_arch = "x86_64"))
+        }) {
+            return unsupported("nested virtualization policy");
+        }
         if launch.execution != microsandbox_runtime::launch::ExecutionIntent::Boot {
             return unsupported("execution restore");
         }
@@ -245,7 +256,12 @@ impl LaunchContract {
         }
         let mut value = serde_json::to_value(launch)?;
         let fields = value.as_object_mut().expect("launch config object");
-        for key in ["execution", "checkpoint_restore", "memory_cache_dir"] {
+        for key in [
+            "execution",
+            "checkpoint_restore",
+            "memory_cache_dir",
+            "nested_virt",
+        ] {
             fields.remove(key);
         }
         let rootfs = fields["rootfs"].as_object_mut().expect("rootfs object");
@@ -415,6 +431,7 @@ impl LaunchContract {
             cpu_placement: resources.cpu_placement,
             placement_profile_name: resources.placement_profile.clone(),
             thp: resources.thp,
+            nested_virt: Some(resources.nested_virt),
             guest_clock: config.spec.runtime.guest_clock.unwrap_or_default(),
             vsock: config.spec.vsock.routes.clone(),
             owned_volumes: config
@@ -558,6 +575,7 @@ pub(crate) async fn validate_runtime_config(
         .require_network_capabilities(&runtime.msb_path, &network)
         .await?;
     validate_guest_clock(&runtime.msb_path, config).await?;
+    validate_nested_virt(&runtime.msb_path, config).await?;
     Ok(())
 }
 
@@ -654,6 +672,45 @@ pub(crate) async fn validate_http_deny_response(
         ));
     }
     Ok(())
+}
+
+/// Refuse runtimes that would ignore the requested hardware virtualization policy.
+pub(crate) async fn validate_nested_virt(
+    path: &Path,
+    config: &SandboxConfig,
+) -> MicrosandboxResult<()> {
+    if !cfg!(all(target_os = "linux", target_arch = "x86_64")) && !config.spec.resources.nested_virt
+    {
+        return Ok(());
+    }
+
+    let capability = require_capability(
+        path,
+        |capabilities| capabilities.nested_virt,
+        "nested virtualization policy",
+    )
+    .await;
+    if capability.is_ok() {
+        return capability;
+    }
+
+    if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        if config.spec.resources.nested_virt {
+            // Previous v0.6 contracts exposed host virtualization unconditionally.
+            if resolve(path).await.is_ok_and(|contract| !contract.machine) {
+                return Ok(());
+            }
+        } else if probe(path)
+            .await
+            .is_ok_and(|version| version >= Version::new(0, 7, 7))
+        {
+            // v0.7.7 masks VMX/SVM by default even without the new toggle.
+            // Encoding omits false so its strict launch reader accepts the request.
+            return Ok(());
+        }
+    }
+
+    capability
 }
 
 /// Probe guest clock support only when the caller turns host synchronization off.
@@ -1055,6 +1112,33 @@ mod tests {
             r#"printf '%s' '{"protocols":[2,1],"http_deny_message":true}'"#,
         );
         validate_http_deny_response(&path, &config).await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn nested_virt_requires_a_runtime_that_honors_the_setting() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = SandboxConfig::default();
+        // Linux legacy runtimes could expose nesting unconditionally, so an
+        // explicit disable needs a capability there; other hosts need it to enable.
+        config.spec.resources.nested_virt = !cfg!(all(target_os = "linux", target_arch = "x86_64"));
+
+        let path = script(
+            dir.path(),
+            "nested-unsupported",
+            r#"printf '%s' '{"protocols":[2,1]}'"#,
+        );
+        let error = validate_nested_virt(&path, &config).await.unwrap_err();
+        assert!(error.to_string().contains("nested virtualization policy"));
+
+        let path = script(
+            dir.path(),
+            "nested-supported",
+            r#"printf '%s' '{"protocols":[2,1],"nested_virt":true}'"#,
+        );
+        validate_nested_virt(&path, &config).await.unwrap();
+        config.spec.resources.nested_virt = false;
+        validate_nested_virt(&path, &config).await.unwrap();
     }
 
     #[cfg(unix)]

@@ -364,6 +364,15 @@ impl SandboxBuilder {
         self
     }
 
+    /// Enable or disable nested virtualization for a local sandbox.
+    ///
+    /// Disabled by default. The host hypervisor must support nesting, and the guest
+    /// kernel must support KVM. Enabling it on an unsupported host fails at startup.
+    pub fn nested_virt(mut self, enabled: bool) -> Self {
+        self.config.spec.resources.nested_virt = Some(enabled);
+        self
+    }
+
     /// Select the guest transparent huge-page policy applied at boot.
     ///
     /// `Madvise` is the default and uses huge pages only for mappings that
