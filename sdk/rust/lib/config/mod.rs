@@ -317,8 +317,9 @@ pub struct SandboxDefaults {
     /// Default guest transparent huge-page policy.
     pub thp: TransparentHugePagePolicy,
 
-    /// Default nested virtualization policy (disabled by default).
-    pub nested_virt: bool,
+    /// Explicit default nested virtualization policy. Omission uses the runtime default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nested_virt: Option<bool>,
 
     /// Default OCI rootfs settings.
     #[config_patch(nested)]
@@ -629,7 +630,7 @@ impl Default for SandboxDefaults {
             cpu_placement: CpuPlacement::Inherit,
             placement_profile: None,
             thp: TransparentHugePagePolicy::Madvise,
-            nested_virt: microsandbox_types::default_nested_virt(),
+            nested_virt: None,
             oci: OciSandboxDefaults::default(),
             shell: "/bin/sh".into(),
             workdir: None,

@@ -431,7 +431,7 @@ impl LaunchContract {
             cpu_placement: resources.cpu_placement,
             placement_profile_name: resources.placement_profile.clone(),
             thp: resources.thp,
-            nested_virt: Some(resources.nested_virt),
+            nested_virt: resources.nested_virt,
             guest_clock: config.spec.runtime.guest_clock.unwrap_or_default(),
             vsock: config.spec.vsock.routes.clone(),
             owned_volumes: config
@@ -679,8 +679,11 @@ pub(crate) async fn validate_nested_virt(
     path: &Path,
     config: &SandboxConfig,
 ) -> MicrosandboxResult<()> {
-    if !cfg!(all(target_os = "linux", target_arch = "x86_64")) && !config.spec.resources.nested_virt
-    {
+    let Some(enabled) = config.spec.resources.nested_virt else {
+        // Preserve historical runtime defaults when the caller supplied no policy.
+        return Ok(());
+    };
+    if !cfg!(all(target_os = "linux", target_arch = "x86_64")) && !enabled {
         return Ok(());
     }
 
@@ -695,7 +698,7 @@ pub(crate) async fn validate_nested_virt(
     }
 
     if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-        if config.spec.resources.nested_virt {
+        if enabled {
             // Previous v0.6 contracts exposed host virtualization unconditionally.
             if resolve(path).await.is_ok_and(|contract| !contract.machine) {
                 return Ok(());
@@ -710,7 +713,9 @@ pub(crate) async fn validate_nested_virt(
         }
     }
 
-    capability
+    Err(MicrosandboxError::Runtime(upgrade_required(
+        "nested virtualization policy",
+    )))
 }
 
 /// Probe guest clock support only when the caller turns host synchronization off.
@@ -1118,27 +1123,73 @@ mod tests {
     #[tokio::test]
     async fn nested_virt_requires_a_runtime_that_honors_the_setting() {
         let dir = tempfile::tempdir().unwrap();
-        let mut config = SandboxConfig::default();
-        // Linux legacy runtimes could expose nesting unconditionally, so an
-        // explicit disable needs a capability there; other hosts need it to enable.
-        config.spec.resources.nested_virt = !cfg!(all(target_os = "linux", target_arch = "x86_64"));
-
-        let path = script(
-            dir.path(),
-            "nested-unsupported",
-            r#"printf '%s' '{"protocols":[2,1]}'"#,
-        );
-        let error = validate_nested_virt(&path, &config).await.unwrap_err();
-        assert!(error.to_string().contains("nested virtualization policy"));
+        let legacy_enabled = cfg!(all(target_os = "linux", target_arch = "x86_64"));
+        for version in ["0.6.0", "0.6.18", "0.7.7"] {
+            let capabilities = if version == "0.7.7" {
+                r#"printf '%s' '{"protocols":[2,1]}'"#
+            } else {
+                "exit 1"
+            };
+            let path = script(
+                dir.path(),
+                version,
+                &format!(
+                    r#"case "$1" in --version) printf 'msb {version}';; *) {capabilities};; esac"#
+                ),
+            );
+            // Machine runtimes are identified by embedded binary metadata;
+            // the shell fixture only models their capability/version responses.
+            let contract = if version == "0.7.7" {
+                LaunchContract {
+                    patch: 18,
+                    machine: true,
+                }
+            } else {
+                resolve(&path).await.unwrap()
+            };
+            for requested in [None, Some(false), Some(true)] {
+                let mut config = crate::test_support::fixtures::decode(include_str!(
+                    "../db/fixtures/config-0.6.0.json"
+                ))
+                .unwrap();
+                config.spec.resources.nested_virt = requested;
+                let expected =
+                    requested.is_none() || requested == Some(version != "0.7.7" && legacy_enabled);
+                let result = validate_nested_virt(&path, &config).await;
+                assert_eq!(result.is_ok(), expected, "{version}: {requested:?}");
+                if expected {
+                    contract.validate_launch_intent(&config).unwrap();
+                    let payload = contract
+                        .encode(&LaunchConfig {
+                            nested_virt: config.spec.resources.nested_virt,
+                            ..Default::default()
+                        })
+                        .unwrap();
+                    assert!(payload.get("nested_virt").is_none());
+                } else {
+                    assert!(
+                        result
+                            .unwrap_err()
+                            .to_string()
+                            .contains("nested virtualization policy")
+                    );
+                }
+            }
+        }
 
         let path = script(
             dir.path(),
             "nested-supported",
             r#"printf '%s' '{"protocols":[2,1],"nested_virt":true}'"#,
         );
-        validate_nested_virt(&path, &config).await.unwrap();
-        config.spec.resources.nested_virt = false;
-        validate_nested_virt(&path, &config).await.unwrap();
+        for requested in [None, Some(false), Some(true)] {
+            let mut config = crate::test_support::fixtures::decode(include_str!(
+                "../db/fixtures/config-0.6.0.json"
+            ))
+            .unwrap();
+            config.spec.resources.nested_virt = requested;
+            validate_nested_virt(&path, &config).await.unwrap();
+        }
     }
 
     #[cfg(unix)]

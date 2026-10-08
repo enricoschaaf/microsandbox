@@ -393,7 +393,7 @@ impl SandboxConfigPatch {
         }
 
         if let Some(enabled) = nested_virt {
-            resources.nested_virt_mut(*enabled);
+            resources.set_nested_virt_mut(*enabled);
         }
 
         let mut runtime = SandboxRuntimeOptionsPatch::new();
@@ -1110,7 +1110,7 @@ impl Default for SandboxConfig {
                     cpu_placement: Default::default(),
                     placement_profile: None,
                     thp: TransparentHugePagePolicy::Madvise,
-                    nested_virt: microsandbox_types::default_nested_virt(),
+                    nested_virt: None,
                 },
                 runtime: SandboxRuntimeOptions {
                     log_level: default_log_level(),
@@ -1944,7 +1944,7 @@ mod tests {
                 cpu_placement: Default::default(),
                 placement_profile: None,
                 thp: TransparentHugePagePolicy::Madvise,
-                nested_virt: microsandbox_types::default_nested_virt(),
+                nested_virt: None,
             },
             runtime: SandboxRuntimeOptions {
                 workdir: Some("/app".into()),
@@ -2733,13 +2733,28 @@ mod layering_tests {
     fn nested_virt_obeys_config_precedence_and_serializes_false() {
         use serde_json::json;
 
+        let default = serde_json::to_value(crate::SandboxConfig::default()).unwrap();
+        assert!(
+            default["resources"]
+                .as_object()
+                .unwrap()
+                .get("nested_virt")
+                .is_none()
+        );
+
         for (user, requested, managed, expected) in [
-            (true, None, None, true),
-            (true, Some(false), None, false),
-            (false, Some(true), Some(false), false),
+            (None, None, None, None),
+            (None, Some(false), None, Some(false)),
+            (Some(true), None, None, Some(true)),
+            (Some(true), Some(false), None, Some(false)),
+            (Some(false), Some(true), Some(false), Some(false)),
         ] {
             let layers = BackendConfig::new(
-                serde_json::from_value(json!({"sandbox_defaults": {"nested_virt": user}})).unwrap(),
+                user.map(|enabled| {
+                    serde_json::from_value(json!({"sandbox_defaults": {"nested_virt": enabled}}))
+                        .unwrap()
+                })
+                .unwrap_or_default(),
                 managed
                     .map(|enabled| {
                         serde_json::from_value(
@@ -2750,7 +2765,7 @@ mod layering_tests {
                     .unwrap_or_default(),
             );
             let mut options = SandboxConfigPatch::new();
-            options.spec.resources.nested_virt = requested;
+            options.spec.resources.nested_virt = requested.map(Some);
             let config = layers
                 .sandbox_layers()
                 .base(Default::default())
@@ -2815,7 +2830,7 @@ mod layering_tests {
                 "sandbox_defaults.nested_virt",
                 "spec.resources.nested_virt",
                 json!(false),
-                false,
+                true,
             ),
             (
                 "sandbox_defaults.thp",

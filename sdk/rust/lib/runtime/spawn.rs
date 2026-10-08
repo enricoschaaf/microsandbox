@@ -2867,7 +2867,7 @@ fn machine_cli_args(
         agent_sock: agent_sock_path.to_path_buf(),
         libkrunfw_path: libkrunfw_path.to_path_buf(),
         thp: config.spec.resources.thp,
-        nested_virt: Some(config.spec.resources.nested_virt),
+        nested_virt: config.spec.resources.nested_virt,
         guest_clock: config.spec.runtime.guest_clock.unwrap_or_default(),
         memory_cache_dir: Some(local.cache_dir().join("memory")),
         startup: startup_command(config),

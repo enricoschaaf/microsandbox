@@ -148,7 +148,7 @@ pub struct SandboxOpts {
     #[arg(long, value_name = "POLICY", value_parser = ["always", "madvise", "never"])]
     pub thp: Option<String>,
 
-    /// Enable nested virtualization for local sandboxes (disabled by default).
+    /// Enable or disable nested virtualization. Omission uses the runtime default.
     #[arg(long, action = clap::ArgAction::Set, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
     pub nested_virt: Option<bool>,
 
@@ -4232,10 +4232,10 @@ mod tests {
     #[tokio::test]
     async fn nested_virtualization_cli_preserves_explicit_false() {
         for (args, expected) in [
-            (vec!["create"], microsandbox_types::default_nested_virt()),
-            (vec!["create", "--nested-virt", "alpine"], true),
-            (vec!["create", "--nested-virt=true"], true),
-            (vec!["create", "--nested-virt=false"], false),
+            (vec!["create"], None),
+            (vec!["create", "--nested-virt", "alpine"], Some(true)),
+            (vec!["create", "--nested-virt=true"], Some(true)),
+            (vec!["create", "--nested-virt=false"], Some(false)),
         ] {
             let matches =
                 SandboxOpts::augment_args(Command::new("create").arg(clap::Arg::new("image")))

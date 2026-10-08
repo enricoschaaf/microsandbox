@@ -553,7 +553,7 @@ fn reject_dropped_cloud_create_fields(config: &SandboxConfig) -> MicrosandboxRes
         )
     };
 
-    if config.spec.resources.nested_virt {
+    if config.spec.resources.nested_virt == Some(true) {
         return Err(unsupported("nested_virt (local-only)"));
     }
     if config.spec.resources.max_cpus != config.spec.resources.cpus {
@@ -1493,7 +1493,7 @@ mod tests {
                 config.spec.runtime.hostname = Some("worker".into())
             }),
             ("nested_virt (local-only)", |config| {
-                config.spec.resources.nested_virt = true
+                config.spec.resources.nested_virt = Some(true)
             }),
             ("guest_clock", |config| {
                 config.spec.runtime.guest_clock = Some(microsandbox_types::GuestClockPolicy::Off)
