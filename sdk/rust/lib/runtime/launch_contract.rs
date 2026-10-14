@@ -780,15 +780,14 @@ pub(crate) async fn validate_nested_virt(
     {
         if enabled {
             validate_nested_host(&capabilities)?;
-            if !contract.machine {
-                return unsupported(
-                    "nested virtualization policy through a legacy runtime or wrapper",
-                );
-            }
+        }
+        if !contract.machine {
+            return unsupported("nested virtualization policy through a legacy runtime or wrapper");
         }
         return Ok(());
     }
     if !enabled
+        && contract.machine
         && probe(path)
             .await
             .is_ok_and(|version| version >= Version::new(0, 7, 7))
@@ -913,8 +912,8 @@ async fn require_capability(
     Ok(())
 }
 
-// Cache successful discovery for unchanged native executables, sharing cold probes
-// between concurrent starts. Wrappers can switch their target without changing identity.
+// Cache successful discovery for unchanged native executables. Wrappers can
+// switch their target without changing identity.
 async fn capabilities(path: &Path) -> MicrosandboxResult<Arc<LaunchCapabilities>> {
     let path = std::fs::canonicalize(path)?;
     let file = File::open(&path)?;
@@ -926,9 +925,11 @@ async fn capabilities(path: &Path) -> MicrosandboxResult<Arc<LaunchCapabilities>
             &bounded_probe(&path, "__launch-protocol").await?,
         )?));
     }
-    let mut cached = CAPABILITIES.lock().await;
-    if let Some(entry) = cached.get(&path).filter(|entry| entry.identity == identity) {
-        return Ok(entry.capabilities.clone());
+    {
+        let cached = CAPABILITIES.lock().await;
+        if let Some(entry) = cached.get(&path).filter(|entry| entry.identity == identity) {
+            return Ok(entry.capabilities.clone());
+        }
     }
     let capabilities = Arc::new(serde_json::from_slice::<LaunchCapabilities>(
         &bounded_probe(&path, "__launch-protocol").await?,
@@ -940,6 +941,7 @@ async fn capabilities(path: &Path) -> MicrosandboxResult<Arc<LaunchCapabilities>
             "runtime executable changed during capability discovery".into(),
         ));
     }
+    let mut cached = CAPABILITIES.lock().await;
     if cached.len() >= 64 {
         cached.clear();
     }
@@ -1469,6 +1471,37 @@ mod tests {
                 requested
                     .is_none()
                     .then_some(&serde_json::Value::Bool(true))
+            );
+        }
+
+        // A capable runtime behind a legacy wrapper still cannot receive a
+        // policy that its selected wire contract discards.
+        let legacy = LaunchContract {
+            machine: false,
+            ..contract
+        };
+        for enabled in [false, true] {
+            let mut config = SandboxConfig::default();
+            config.spec.resources.nested_virt = Some(enabled);
+            let expected = !enabled && !legacy_enabled;
+
+            assert_eq!(
+                validate_nested_virt(&path, &config, legacy).await.is_ok(),
+                expected,
+                "legacy wrapper: {enabled}",
+            );
+            assert_eq!(
+                legacy
+                    .encode_for_runtime(
+                        &path,
+                        &LaunchConfig {
+                            nested_virt: Some(enabled),
+                            ..Default::default()
+                        }
+                    )
+                    .await
+                    .is_ok(),
+                expected,
             );
         }
     }
