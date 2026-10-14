@@ -35,13 +35,15 @@ Nesting defaults to on where the host supports it and off elsewhere. Override it
 (or `nestedVirt` in TypeScript), the CLI's `--nested-virt`, or
 `sandbox_defaults.nested_virt` in [global configuration](/configuration#sandbox_defaults).
 The host must expose nested virtualization and the guest kernel must include KVM support.
-An unsupported host fails startup rather than silently disabling nesting. This restriction
+An explicit enable fails startup on an unsupported host. This restriction
 does not affect ordinary ARM64 sandboxes or their snapshots.
 
 Restore preserves the captured nesting setting and checks backend compatibility. It cannot
 change a nested snapshot into a non-nested sandbox or migrate between host architectures
 or hypervisor backends. Qualification covers a running inner Linux VM through restore,
-forks, second-generation snapshots, and archive export/import. It does not guarantee
+forks, and second-generation snapshots. Linux and Windows x86-64 also passed archive
+export/import; macOS archive integration still needs an end-to-end qualification run.
+It does not guarantee
 cross-host migration, external mount recovery, or restoration of network connections.
 Use matching runtime and guest firmware builds that include nested snapshot support.
 

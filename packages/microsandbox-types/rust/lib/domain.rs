@@ -2390,12 +2390,6 @@ impl TryFrom<&str> for RlimitResource {
 // Functions
 //--------------------------------------------------------------------------------------------------
 
-/// Legacy fallback when host capabilities cannot be queried.
-/// Current local runtimes resolve automatic nesting from the actual host.
-pub const fn default_nested_virt() -> bool {
-    false
-}
-
 fn default_sandbox_cpus() -> u8 {
     DEFAULT_SANDBOX_CPUS
 }

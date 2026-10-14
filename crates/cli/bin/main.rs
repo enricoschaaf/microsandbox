@@ -309,6 +309,7 @@ fn main() {
                     fs_state_limit: true,
                     nested_virt: true,
                     nested_virt_auto: true,
+                    nested_virt_supported: Some(microsandbox_runtime::default_nested_virt()),
                 })
                 .expect("serialize capabilities")
             );
