@@ -391,10 +391,16 @@ impl LocalBackend {
         let _branch_pin = if let Some(source) = config.branch_source.take() {
             tokio::fs::create_dir(&sandbox_dir).await?;
             child_stage_guard = Some(ChildStageGuard::new(sandbox_dir.clone()));
-            Some(
+            let pin =
                 crate::sandbox::branch::capture_child(self, &mut config, &source, &sandbox_dir)
-                    .await?,
-            )
+                    .await?;
+
+            // Capture resolves automatic nesting to its actual execution mode. Recheck
+            // managed policy before publishing or launching the child, as for archives.
+            config = SandboxBuilder::from(config).finish(Some(&self.config), None)?;
+            launch_contract::validate_runtime_config(&config, self.config()).await?;
+
+            Some(pin)
         } else {
             None
         };

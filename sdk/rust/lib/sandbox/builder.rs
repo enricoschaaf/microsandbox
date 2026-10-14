@@ -1332,7 +1332,13 @@ impl SandboxBuilder {
             .and(self.config.spec.image.as_ref())
             .and_then(RootfsSource::oci_root_disk)
             .cloned();
-        if let Some(captured) = &captured_resources {
+        #[cfg(feature = "local")]
+        let pending_capture = self.config.branch_source.is_some();
+        #[cfg(not(feature = "local"))]
+        let pending_capture = false;
+        if let Some(captured) = &captured_resources
+            && !pending_capture
+        {
             // Old ordinary snapshots omit this field. Pin them to off so the
             // automatic host default cannot change their captured execution mode.
             self.config.spec.resources.nested_virt =
@@ -1347,7 +1353,10 @@ impl SandboxBuilder {
 
         if let Some(captured) = captured_resources {
             let effective = &sandbox.spec.resources;
-            if effective.nested_virt.unwrap_or(false) != captured.nested_virt.unwrap_or(false) {
+            // Live forks do not know their actual nesting mode until capture completes.
+            if !pending_capture
+                && effective.nested_virt.unwrap_or(false) != captured.nested_virt.unwrap_or(false)
+            {
                 return Err(MicrosandboxError::InvalidConfig(
                     "managed settings conflict with the snapshot's captured nested virtualization setting".into(),
                 ));
@@ -3979,6 +3988,60 @@ mod tests {
                     assert_eq!(
                         result.unwrap().spec.resources.nested_virt,
                         Some(nested.unwrap_or(false))
+                    );
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "local")]
+    #[test]
+    fn fork_nesting_policy_waits_for_capture() {
+        for managed in [false, true] {
+            let sources = BackendConfig::new(
+                Default::default(),
+                serde_json::from_value(serde_json::json!({
+                    "sandbox_defaults": {"nested_virt": managed}
+                }))
+                .unwrap(),
+            );
+            let mut source = SandboxBuilder::new("child")
+                .image("alpine")
+                .config
+                .into_config();
+            source.suppress_launch_for_full_restore();
+            source.branch_source = Some(super::super::identity::BranchSource {
+                guest_flush: None,
+                batch: None,
+                record_integrity: false,
+                name: "source".into(),
+                run: super::super::identity::SandboxRunIdentity {
+                    sandbox_id: 1,
+                    run_id: 1,
+                    pid: 1,
+                },
+            });
+
+            // Automatic source configuration does not reveal its running nesting mode.
+            let pending = SandboxBuilder::from(source)
+                .finish(Some(&sources), None)
+                .unwrap();
+
+            for nested in [false, true] {
+                let mut captured = pending.clone();
+                captured.branch_source = None;
+                captured.spec.resources.nested_virt = Some(nested);
+
+                let result = SandboxBuilder::from(captured).finish(Some(&sources), None);
+
+                if nested == managed {
+                    assert_eq!(result.unwrap().spec.resources.nested_virt, Some(nested));
+                } else {
+                    assert!(
+                        result
+                            .unwrap_err()
+                            .to_string()
+                            .contains("captured nested virtualization")
                     );
                 }
             }
