@@ -50,7 +50,7 @@ pub const PARENT_WATCH_DETACH: u8 = 1;
 // Types
 //--------------------------------------------------------------------------------------------------
 
-/// Side-effect-free response to `msb __launch-protocol`.
+/// Capability response to `msb __launch-protocol`, including host nesting support.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LaunchCapabilities {
     /// Supported wire generations: 1 is the v0.6.17 boot contract; 2 adds explicit intent.
@@ -100,6 +100,11 @@ pub struct LaunchCapabilities {
     /// The runtime accepts an explicit request for host-dependent nesting defaults.
     #[serde(default)]
     pub nested_virt_auto: bool,
+
+    /// Whether this host can honor an enabled nesting policy. None means an older
+    /// runtime cannot validate host support before destructive replacement.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nested_virt_supported: Option<bool>,
 }
 
 /// Hidden CLI handoff describing the metrics slot the host reserved for this sandbox.

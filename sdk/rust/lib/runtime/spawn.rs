@@ -337,7 +337,8 @@ pub async fn spawn_sandbox(
     launch_contract::validate_http_deny_response(&resolved_runtime.msb_path, config).await?;
     launch_contract::validate_guest_clock(&resolved_runtime.msb_path, config).await?;
     launch_contract::validate_fs_state_limit(&resolved_runtime.msb_path, global).await?;
-    launch_contract::validate_nested_virt(&resolved_runtime.msb_path, config).await?;
+    launch_contract::validate_nested_virt(&resolved_runtime.msb_path, config, launch_contract)
+        .await?;
 
     if config.checkpoint_restore.as_ref().is_some_and(|restore| {
         restore
