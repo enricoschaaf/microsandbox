@@ -92,6 +92,14 @@ pub struct LaunchCapabilities {
     /// Older runtimes omit this capability.
     #[serde(default)]
     pub fs_state_limit: bool,
+
+    /// The runtime honors the nested virtualization launch policy.
+    #[serde(default)]
+    pub nested_virt: bool,
+
+    /// The runtime accepts an explicit request for host-dependent nesting defaults.
+    #[serde(default)]
+    pub nested_virt_auto: bool,
 }
 
 /// Hidden CLI handoff describing the metrics slot the host reserved for this sandbox.
@@ -176,6 +184,14 @@ pub struct LaunchConfig {
     /// Guest transparent huge-page policy selected at boot.
     #[serde(default)]
     pub thp: TransparentHugePagePolicy,
+
+    /// Nested virtualization policy; omitted by older launchers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nested_virt: Option<bool>,
+
+    /// Opt into the automatic host default; absent in older launchers that omitted false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nested_virt_auto: Option<bool>,
 
     /// Host control over the guest wall clock. Omitted when it is the default host sync, so
     /// runtimes that predate the field keep accepting ordinary launches.
@@ -427,6 +443,13 @@ pub struct FileMountConfig {
 //--------------------------------------------------------------------------------------------------
 
 impl LaunchConfig {
+    /// Resolve nesting without treating an old launcher's omitted false as automatic.
+    /// Explicit policy takes precedence and only an automatic request probes the host.
+    pub fn resolve_nested_virt(&self, host_default: impl FnOnce() -> bool) -> bool {
+        self.nested_virt
+            .unwrap_or_else(|| self.nested_virt_auto == Some(true) && host_default())
+    }
+
     /// Decode and validate execution intent before allocating or starting a VM.
     pub fn decode(bytes: &[u8]) -> Result<Self, String> {
         let config: Self = serde_json::from_slice(bytes)
@@ -641,6 +664,37 @@ mod tests {
         without_files.as_object_mut().unwrap().remove("file_mounts");
         let decoded: LaunchConfig = serde_json::from_value(without_files).unwrap();
         assert!(decoded.file_mounts.is_empty());
+    }
+
+    #[test]
+    fn nested_virt_handoff_preserves_omission_and_explicit_false() {
+        for enabled in [None, Some(false), Some(true)] {
+            let config = LaunchConfig {
+                nested_virt: enabled,
+                ..Default::default()
+            };
+            let encoded = serde_json::to_value(config).unwrap();
+            assert_eq!(encoded.get("nested_virt").is_some(), enabled.is_some());
+            let decoded = decode(encoded).unwrap();
+            assert_eq!(decoded.nested_virt, enabled);
+            assert_eq!(
+                decoded.resolve_nested_virt(|| panic!("legacy launch must not probe")),
+                enabled.unwrap_or(false)
+            );
+
+            for supported in [false, true] {
+                let automatic = LaunchConfig {
+                    nested_virt: enabled,
+                    nested_virt_auto: Some(true),
+                    ..Default::default()
+                };
+                let decoded = decode(serde_json::to_value(automatic).unwrap()).unwrap();
+                assert_eq!(
+                    decoded.resolve_nested_virt(|| supported),
+                    enabled.unwrap_or(supported)
+                );
+            }
+        }
     }
 
     #[test]

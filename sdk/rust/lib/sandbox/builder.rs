@@ -364,6 +364,18 @@ impl SandboxBuilder {
         self
     }
 
+    /// Enable or disable nested virtualization for a local sandbox.
+    ///
+    /// Enabled by default where the host supports it on current runtimes. Omitting
+    /// this setting preserves older runtimes' defaults. Explicit choices require
+    /// a runtime that can honor them.
+    /// The host hypervisor must support nesting, and the guest
+    /// kernel must support KVM. Enabling it on an unsupported host fails at startup.
+    pub fn nested_virt(mut self, enabled: bool) -> Self {
+        self.config.spec.resources.nested_virt = Some(Some(enabled));
+        self
+    }
+
     /// Select the guest transparent huge-page policy applied at boot.
     ///
     /// `Madvise` is the default and uses huge pages only for mappings that
@@ -1320,6 +1332,12 @@ impl SandboxBuilder {
             .and(self.config.spec.image.as_ref())
             .and_then(RootfsSource::oci_root_disk)
             .cloned();
+        if let Some(captured) = &captured_resources {
+            // Old ordinary snapshots omit this field. Pin them to off so the
+            // automatic host default cannot change their captured execution mode.
+            self.config.spec.resources.nested_virt =
+                Some(Some(captured.nested_virt.unwrap_or(false)));
+        }
         let mut sandbox = SandboxConfig::default();
         sandbox.apply_layers(
             backend_config,
@@ -1329,6 +1347,11 @@ impl SandboxBuilder {
 
         if let Some(captured) = captured_resources {
             let effective = &sandbox.spec.resources;
+            if effective.nested_virt.unwrap_or(false) != captured.nested_virt.unwrap_or(false) {
+                return Err(MicrosandboxError::InvalidConfig(
+                    "managed settings conflict with the snapshot's captured nested virtualization setting".into(),
+                ));
+            }
             if (
                 effective.cpus,
                 effective.max_cpus,
@@ -1486,6 +1509,7 @@ impl SandboxBuilder {
 
     fn restore_override_intent(&self) -> RestoreOverrideIntent {
         RestoreOverrideIntent {
+            nested_virt: self.config.spec.resources.nested_virt.is_some(),
             cpus: self.config.spec.resources.cpus.is_some(),
             max_cpus: self.config.spec.resources.max_cpus.is_some(),
             memory: self.config.spec.resources.memory_mib.is_some(),
@@ -2237,6 +2261,17 @@ pub(crate) fn apply_checkpoint_restore_constraints(
             )));
         }
     }
+
+    let nested = microsandbox_runtime::checkpoint::captured_nested_virt(&checkpoint.resources)
+        .map_err(MicrosandboxError::SnapshotIntegrity)?;
+    if overrides.nested_virt && config.spec.resources.nested_virt.unwrap_or(false) != nested {
+        return Err(MicrosandboxError::InvalidConfig(
+            "a full snapshot must restore with its captured nested virtualization setting".into(),
+        ));
+    }
+    // Nesting is immutable execution state, not an automatic boot default.
+    config.spec.resources.nested_virt = Some(nested);
+
     apply_checkpoint_resources(config, state, overrides)?;
     apply_capture_network(config, &checkpoint.resources)
 }
@@ -3910,6 +3945,47 @@ mod tests {
     }
 
     #[test]
+    fn restored_nesting_cannot_be_changed_by_managed_layers() {
+        for nested in [None, Some(false), Some(true)] {
+            let mut captured = SandboxBuilder::new("restore")
+                .image("alpine")
+                .config
+                .into_config();
+            captured.spec.resources.nested_virt = nested;
+            captured.suppress_launch_for_full_restore();
+
+            for managed in [None, Some(false), Some(true)] {
+                let policy = managed.map_or_else(
+                    || serde_json::json!({}),
+                    |enabled| serde_json::json!({"sandbox_defaults":{"nested_virt":enabled}}),
+                );
+                let sources = BackendConfig::new(
+                    serde_json::from_value(serde_json::json!({
+                        "sandbox_defaults":{"nested_virt": !nested.unwrap_or(false)}
+                    }))
+                    .unwrap(),
+                    serde_json::from_value(policy).unwrap(),
+                );
+                let result = SandboxBuilder::from(captured.clone()).finish(Some(&sources), None);
+
+                if managed.is_some_and(|enabled| enabled != nested.unwrap_or(false)) {
+                    assert!(
+                        result
+                            .unwrap_err()
+                            .to_string()
+                            .contains("captured nested virtualization")
+                    );
+                } else {
+                    assert_eq!(
+                        result.unwrap().spec.resources.nested_virt,
+                        Some(nested.unwrap_or(false))
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn restored_root_layout_cannot_be_changed_by_managed_layers() {
         let mut captured = SandboxBuilder::new("restore")
             .image("alpine")
@@ -4075,6 +4151,89 @@ mod tests {
         let plain = manifest_with_guest_clock(GuestClockPolicy::Sync);
 
         require_recorded_mounts(&config(SandboxBuilder::new("restore"), true), &plain).unwrap();
+    }
+
+    #[test]
+    fn checkpoint_restore_preserves_captured_nesting_over_defaults() {
+        use microsandbox_image::checkpoint::{
+            CaptureIntent, CheckpointGeometry, CheckpointManifest, ObjectId, ResourceDescriptor,
+            ResourceTreatment,
+        };
+
+        use crate::MicrosandboxError;
+
+        let state = checkpoint_state_with_geometry(4, 8, 2048, 4096);
+        let mut checkpoint = CheckpointManifest {
+            schema: "microsandbox.checkpoint/1".into(),
+            checkpoint_id: "checkpoint_test".into(),
+            capture_intent: CaptureIntent::FullSnapshot,
+            architecture: std::env::consts::ARCH.into(),
+            geometry: CheckpointGeometry {
+                vcpus: 4,
+                max_vcpus: 8,
+                memory_mib: 2048,
+                max_memory_mib: 4096,
+            },
+            pause_generation: 1,
+            execution_state: ObjectId::from_bytes(b"execution").unwrap(),
+            memory: ObjectId::from_bytes(b"memory").unwrap(),
+            disks: Vec::new(),
+            owned_volumes: Vec::new(),
+            devices: Vec::new(),
+            resources: Vec::new(),
+            requires: Vec::new(),
+        };
+
+        for captured in [false, true] {
+            checkpoint.resources = if captured {
+                vec![ResourceDescriptor {
+                    id: "vm:nested-virt".into(),
+                    kind: "nested-virt".into(),
+                    treatment: ResourceTreatment::Serialize,
+                    binding: [("enabled".into(), "true".into())].into(),
+                }]
+            } else {
+                Vec::new()
+            };
+            for configured in [None, Some(false), Some(true)] {
+                for explicit in [false, true] {
+                    let mut config = SandboxBuilder::new("restore").config.into_config();
+                    config.spec.resources.nested_virt = configured;
+                    let result = super::apply_checkpoint_restore_constraints(
+                        &mut config,
+                        &state,
+                        &checkpoint,
+                        RestoreOverrideIntent {
+                            nested_virt: explicit,
+                            ..Default::default()
+                        },
+                    );
+
+                    if explicit && configured.unwrap_or(false) != captured {
+                        assert!(matches!(result, Err(MicrosandboxError::InvalidConfig(_))));
+                    } else {
+                        result.unwrap();
+                        let expected = Some(captured);
+                        assert_eq!(config.spec.resources.nested_virt, expected);
+                    }
+                }
+            }
+        }
+
+        // A malformed captured requirement must fail before a restore can proceed.
+        checkpoint.resources[0]
+            .binding
+            .insert("enabled".into(), "false".into());
+        let mut config = SandboxBuilder::new("restore").config.into_config();
+        assert!(matches!(
+            super::apply_checkpoint_restore_constraints(
+                &mut config,
+                &state,
+                &checkpoint,
+                RestoreOverrideIntent::default(),
+            ),
+            Err(MicrosandboxError::SnapshotIntegrity(_))
+        ));
     }
 
     #[test]
