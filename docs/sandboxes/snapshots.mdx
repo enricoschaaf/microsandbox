@@ -46,14 +46,15 @@ does not affect ordinary ARM64 sandboxes or their snapshots.
 Intel Windows additionally requires Hyper-V enlightened VMCS support. The runtime
 requests it automatically, and the matching Windows guest firmware uses it. Full
 snapshots reject an active Intel nested VM that uses ordinary VMCS state. Older
-nested Windows snapshots from before this fix must be captured again; ordinary
-Windows snapshots are unaffected.
+nested Windows snapshots using ordinary VMCS state must be captured again. See
+[Windows timer recovery](#recover-missing-windows-timer-state) for timer-state compatibility
+and explicit recovery options.
 
 Restore preserves the captured nesting setting and checks backend compatibility. It cannot
 change a nested snapshot into a non-nested sandbox or migrate between host architectures
 or hypervisor backends. Qualification covers a running inner Linux VM through restore,
-forks, and second-generation snapshots. Linux and Windows x86-64 also passed archive
-export/import; macOS archive integration still needs an end-to-end qualification run.
+forks, second-generation snapshots, and archive export/import on Linux and Windows
+x86-64 and qualified Apple Silicon macOS.
 It does not guarantee
 cross-host migration, external mount recovery, or restoration of network connections.
 Use matching runtime and guest firmware builds that include nested snapshot support.
