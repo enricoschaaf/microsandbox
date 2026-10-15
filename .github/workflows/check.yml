@@ -10,6 +10,8 @@ on:
     branches:
       - main
       - mintlify
+      # Run the full matrix for the nested-virtualization stack before landing.
+      - toks/windows-bootstrap-devtmpfs
       - "releases/**"
 
 concurrency:
