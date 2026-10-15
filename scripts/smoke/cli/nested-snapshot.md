@@ -91,3 +91,9 @@ Set `NESTED_BUSY=1` when running the Python lifecycle test with the updated
 libkrun full-OS fixture. Both inner workers must keep advancing across restore;
 missing worker records, resets and stalls fail the same observation window as
 the disk/timer workload. Provision enough host CPUs for all live sandbox copies.
+
+2026-10-15: the rebased CLI candidate passed the full managed-disk matrix on
+Apple M5 Pro macOS, including archive export/import. Intel and AMD Windows also
+passed the full matrix with both busy inner workers using the precise PIT timer
+implementation. All six sandbox copies remained live until cleanup; worker
+counters, disk records, timer progress, and workload identity were checked.
