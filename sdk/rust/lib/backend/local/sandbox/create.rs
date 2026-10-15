@@ -294,7 +294,15 @@ impl LocalBackend {
                 &materialized.manifest.root_disk,
             )?;
             image_operations.push(materialized.cache_operation);
-            if let Some(restore) = materialized.checkpoint_restore {
+            if config.legacy_windows_pit_divisor.is_some()
+                && materialized.checkpoint_restore.is_none()
+            {
+                return Err(crate::MicrosandboxError::SnapshotIntegrity(
+                    "periodic PIT recovery requires a full execution snapshot".into(),
+                ));
+            }
+            if let Some(mut restore) = materialized.checkpoint_restore {
+                restore.legacy_windows_pit_divisor = config.legacy_windows_pit_divisor;
                 let state = match &materialized.manifest.state {
                     crate::snapshot::SnapshotState::Checkpoint(state) => state,
                     crate::snapshot::SnapshotState::File(_) => {
@@ -413,7 +421,7 @@ impl LocalBackend {
             let root_layout = snapshot_root_layout_from_config(&config)?;
             match config.snapshot_restore_mode {
                 SnapshotRestoreMode::Full => {
-                    let materialized = crate::snapshot::materialize_checkpoint_for_child(
+                    let mut materialized = crate::snapshot::materialize_checkpoint_for_child(
                         &source,
                         &sandbox_dir,
                         &root_layout,
@@ -421,6 +429,8 @@ impl LocalBackend {
                         self.config().fs_state_limit(),
                     )
                     .await?;
+                    materialized.restore.legacy_windows_pit_divisor =
+                        config.legacy_windows_pit_divisor;
                     config.checkpoint_restore = Some(materialized.restore);
                     crate::snapshot::apply_additional_disks(&mut config, materialized.disk_mounts);
                     config.snapshot_upper_layers = materialized.upper_layers;
@@ -2704,6 +2714,7 @@ esac
         }
         let mut config = builder.build().await.unwrap();
         config.checkpoint_restore = Some(microsandbox_runtime::launch::CheckpointRestoreConfig {
+            legacy_windows_pit_divisor: None,
             memory_descriptor: false,
             network_gateway_mac: None,
             external_mount_policy: Default::default(),
@@ -3236,6 +3247,7 @@ esac
         let pools = open_test_pools(&temp.path().join("test.db")).await;
         let mut config = test_config_with_rootfs("pending", bind_rootfs(temp.path().to_path_buf()));
         config.checkpoint_restore = Some(microsandbox_runtime::launch::CheckpointRestoreConfig {
+            legacy_windows_pit_divisor: None,
             memory_descriptor: false,
             network_gateway_mac: None,
             external_mount_policy: Default::default(),

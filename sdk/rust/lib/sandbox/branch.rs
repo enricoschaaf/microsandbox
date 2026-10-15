@@ -669,6 +669,7 @@ async fn adopt_capture(
     );
     crate::snapshot::apply_additional_disks(config, mounts);
     config.checkpoint_restore = Some(CheckpointRestoreConfig {
+        legacy_windows_pit_divisor: None,
         memory_descriptor: state.memory.memfd_lease.is_some(),
         network_gateway_mac: microsandbox_runtime::checkpoint::captured_gateway_mac(
             &state.resources,

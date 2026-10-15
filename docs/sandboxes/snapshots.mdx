@@ -476,6 +476,37 @@ with the updated runtime. This recovery path requires a disk-backed root and the
 snapshot's base image, and any external mounts must be supplied again. Normal full
 restore never silently falls back to restarting from disk.
 
+### Recover missing Windows timer state
+
+New Windows x86 full snapshots save the emulated PIT timer, including its remaining
+period and partially written settings. Older snapshots did not save this state.
+Normal restore refuses those snapshots with recovery instructions, because restoring
+a stopped timer can freeze the guest clock and make commands hang.
+
+The safest recovery is the disk-only restart described above. If you know the
+original guest used a periodic channel-0 PIT and know its reload value, you can
+explicitly supply that value while restoring its running state:
+
+```bash
+msb snapshot restore worker:old --name recovered --recover-windows-periodic-pit 4773
+```
+
+`4773` is an example for a known 250 Hz PIT configuration, **not a universal default**.
+The reload must be between 1 and 65536. Recovery starts a fresh timer period; the
+original phase, partially written settings, and other PIT channels cannot be
+reconstructed. Do not use it when those settings are unknown or exact timer
+continuity matters. Verify commands, sleeps, and your application, then capture a
+new full snapshot and test restoring it without the recovery option. Keep the
+original until you have verified the replacement.
+
+The equivalent SDK options are Rust `.recover_windows_periodic_pit(divisor)`,
+Python `recover_windows_periodic_pit=divisor`, Node
+`.recoverWindowsPeriodicPit(divisor)`, and Go
+`WithRecoverWindowsPeriodicPIT(divisor)`. They apply only to local Windows x86
+full restores and cannot be combined with disk-only restore. CPU, frequency,
+topology, and nested-state compatibility checks still apply. Older nested
+snapshots without enlightened VMCS state still require a disk-only restart.
+
 ### Keep the guest clock
 
 Guest-clock overrides are currently available through the CLI and Rust SDK. Other SDKs use the default policy when creating a sandbox and inherit the saved policy when restoring.

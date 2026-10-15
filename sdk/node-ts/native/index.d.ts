@@ -826,6 +826,8 @@ export declare class RestoreBuilder {
   snapshotBase(base: string): this
   /** Cold-boot only the disk state carried by a full snapshot. */
   diskOnly(): this
+  /** Recover missing Windows PIT state using a known periodic reload (1..65536). */
+  recoverWindowsPeriodicPit(divisor: number): this
   /** @deprecated Use cowMemory() instead. */
   forked(): this
   /** Restore a full snapshot with private copy-on-write memory. */

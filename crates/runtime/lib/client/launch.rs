@@ -101,6 +101,10 @@ pub struct LaunchCapabilities {
     #[serde(default)]
     pub nested_virt_auto: bool,
 
+    /// Explicit recovery of Windows snapshots that omitted PIT state.
+    #[serde(default)]
+    pub windows_pit_recovery: bool,
+
     /// Whether this host can honor an enabled nesting policy. None means an older
     /// runtime cannot validate host support before destructive replacement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -285,6 +289,9 @@ pub struct LaunchConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckpointRestoreConfig {
+    /// Explicit periodic PIT recovery for old Windows snapshots; a fresh timer phase is used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legacy_windows_pit_divisor: Option<u32>,
     /// Require the sealed memory object inherited at BRANCH_MEMORY_FD, not a serialized path.
     /// Kept inside this strict envelope so an older runtime rejects it instead of cold booting.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -566,6 +573,7 @@ mod tests {
         serde_json::to_value(LaunchConfig {
             execution: ExecutionIntent::Restore,
             checkpoint_restore: Some(CheckpointRestoreConfig {
+                legacy_windows_pit_divisor: None,
                 memory_descriptor: false,
                 network_gateway_mac: None,
                 external_mount_policy: Default::default(),

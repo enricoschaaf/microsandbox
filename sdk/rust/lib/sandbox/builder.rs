@@ -2053,6 +2053,17 @@ pub(crate) fn prepare_local_snapshot_restore(
     config: &mut SandboxConfig,
     snap: &crate::snapshot::Snapshot,
 ) -> MicrosandboxResult<()> {
+    if let Some(divisor) = config.legacy_windows_pit_divisor
+        && (!cfg!(all(target_os = "windows", target_arch = "x86_64"))
+            || !(1..=65536).contains(&divisor)
+            || config.snapshot_restore_mode == SnapshotRestoreMode::DiskOnly
+            || snap.manifest().scope != crate::snapshot::SnapshotScope::Full)
+    {
+        return Err(crate::MicrosandboxError::SnapshotIntegrity(
+            "periodic PIT recovery requires a Windows x86 full restore and a divisor between 1 and 65536".into(),
+        ));
+    }
+
     // A security profile is a boot-time guest policy, not a host-side restore override.
     // Validate the caller's explicit intent before preparing any snapshot resources.
     config
@@ -2121,6 +2132,7 @@ pub(crate) fn prepare_local_snapshot_restore(
             }
             config.checkpoint_restore =
                 Some(microsandbox_runtime::launch::CheckpointRestoreConfig {
+                    legacy_windows_pit_divisor: config.legacy_windows_pit_divisor,
                     memory_descriptor: false,
                     network_gateway_mac: if config.snapshot_restore_mode
                         == SnapshotRestoreMode::Full
@@ -5458,6 +5470,7 @@ mod tests {
         let mut builder = SandboxBuilder::new("forked-child").image("alpine").forked();
         builder.config.checkpoint_restore =
             Some(microsandbox_runtime::launch::CheckpointRestoreConfig {
+                legacy_windows_pit_divisor: None,
                 memory_descriptor: false,
                 network_gateway_mac: None,
                 external_mount_policy: Default::default(),
