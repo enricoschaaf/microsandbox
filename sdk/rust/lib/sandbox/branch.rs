@@ -519,7 +519,7 @@ pub(crate) async fn capture_child(
     #[cfg(not(target_os = "linux"))]
     let response = modify::control_session_for_run(local, &source.name, source.run)
         .await?
-        .request(&CreateBranch(request))
+        .capture(&CreateBranch(request))
         .await
         .map_err(MicrosandboxError::ControlClient)?;
     #[cfg(target_os = "linux")]

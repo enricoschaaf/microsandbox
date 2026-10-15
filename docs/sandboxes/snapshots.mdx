@@ -17,6 +17,11 @@ Disk is the default. Full adds memory and execution state; there is no memory-on
 | **Disk** | Files and owned volumes | Boots a new VM |
 | **Full** | Disk, memory, and running processes | Resumes execution |
 
+Local snapshot capture requests allow up to 30 minutes for the runtime reply,
+including storage publication and source recovery. Windows and macOS fork captures
+use the same budget. Large captures or busy hosts can exceed the shorter deadline
+used by ordinary control operations. A capture request is never automatically retried after an uncertain timeout.
+
 ## Nested VM snapshots
 
 A full snapshot of a local sandbox with nested virtualization enabled saves the running
@@ -443,6 +448,33 @@ msb snap restore worker:snap --name rebooted --disk-only
 </CodeGroup>
 
 Snapshots with a tmpfs root cannot be restored disk-only.
+
+### Recapture an older Windows nested snapshot
+
+Windows nested snapshots created before enlightened VMCS support cannot resume
+with the new runtime. Use disk-only restore to boot a separate sandbox with the
+updated runtime and firmware:
+
+```bash
+msb snapshot restore worker:old --name recovered --disk-only
+```
+
+This preserves the saved disk contents, but does not preserve running processes,
+RAM, or the inner VM's execution state. Writes still buffered in captured RAM are
+not recovered by disk-only restore. Start your application and nested VM again
+in `recovered`, verify they are working, then create a new full snapshot. Any
+managed jobs started with detached exec must finish before full capture:
+
+```bash
+msb snapshot create upgraded --from-sandbox recovered --full
+msb snapshot restore recovered:upgraded --name verified
+```
+
+Keep the original snapshot until you have verified the new one. Merely capturing
+an old, still-running sandbox again does not enable enlightened VMCS; it must boot
+with the updated runtime. This recovery path requires a disk-backed root and the
+snapshot's base image, and any external mounts must be supplied again. Normal full
+restore never silently falls back to restarting from disk.
 
 ### Keep the guest clock
 
