@@ -258,6 +258,16 @@ impl LaunchContract {
         launch: &LaunchConfig,
     ) -> MicrosandboxResult<Value> {
         let mut value = self.encode(launch)?;
+        if launch
+            .checkpoint_restore
+            .as_ref()
+            .is_some_and(|restore| restore.legacy_windows_pit_divisor.is_some())
+            && !capabilities(path).await?.windows_pit_recovery
+        {
+            return Err(MicrosandboxError::Runtime(upgrade_required(
+                "Windows PIT recovery",
+            )));
+        }
         if launch.nested_virt == Some(true) {
             validate_nested_host(capabilities(path).await?.as_ref())?;
         }
@@ -645,6 +655,19 @@ pub(crate) async fn validate_runtime_config(
         Err(error) => return Err(error),
     };
     let contract = resolve(&runtime.msb_path).await?;
+    if let Some(divisor) = config.legacy_windows_pit_divisor {
+        if !cfg!(all(target_os = "windows", target_arch = "x86_64"))
+            || !(1..=65536).contains(&divisor)
+            || config.snapshot_restore_mode == crate::sandbox::config::SnapshotRestoreMode::DiskOnly
+        {
+            return Err(MicrosandboxError::InvalidConfig("periodic PIT recovery requires a Windows x86 full restore and a divisor between 1 and 65536".into()));
+        }
+        if !capabilities(&runtime.msb_path).await?.windows_pit_recovery {
+            return Err(MicrosandboxError::Runtime(upgrade_required(
+                "Windows PIT recovery",
+            )));
+        }
+    }
     validate_nested_virt(&runtime.msb_path, config, contract).await?;
     contract.validate_launch_intent(config)?;
     #[cfg(feature = "net")]
@@ -1366,6 +1389,59 @@ mod tests {
         config.spec.network.http.deny_response_format =
             microsandbox_types::HttpDenyResponseFormat::Text;
         validate_http_deny_response(&path, &config).await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pit_recovery_requires_runtime_support_and_retains_the_explicit_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let contract = LaunchContract {
+            patch: 18,
+            machine: true,
+        };
+        for supported in [false, true] {
+            let path = script(
+                dir.path(),
+                &format!("pit-{supported}"),
+                &format!(
+                    "printf '%s' '{{\"protocols\":[2,1],\"windows_pit_recovery\":{supported}}}'"
+                ),
+            );
+            for divisor in [None, Some(4773)] {
+                let launch = LaunchConfig {
+                    checkpoint_restore: Some(
+                        microsandbox_runtime::launch::CheckpointRestoreConfig {
+                            legacy_windows_pit_divisor: divisor,
+                            ..Default::default()
+                        },
+                    ),
+                    ..Default::default()
+                };
+                let result = contract.encode_for_runtime(&path, &launch).await;
+                if divisor.is_some() && !supported {
+                    assert!(
+                        result
+                            .unwrap_err()
+                            .to_string()
+                            .contains("Windows PIT recovery")
+                    );
+                } else {
+                    let payload = result.unwrap();
+                    if let Some(divisor) = divisor {
+                        assert_eq!(
+                            payload["checkpoint_restore"]["legacy_windows_pit_divisor"],
+                            divisor
+                        );
+                    } else {
+                        assert!(
+                            payload["checkpoint_restore"]
+                                .get("legacy_windows_pit_divisor")
+                                .is_none()
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[cfg(unix)]
@@ -2515,6 +2591,7 @@ mod protocol {
         let config = LaunchConfig {
             execution: ExecutionIntent::Restore,
             checkpoint_restore: Some(microsandbox_runtime::launch::CheckpointRestoreConfig {
+                legacy_windows_pit_divisor: None,
                 closure: "/tmp/checkpoint".into(),
                 checkpoint_root: "blake3:root".into(),
                 checkpoint_id: "saved".into(),

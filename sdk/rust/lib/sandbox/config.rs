@@ -290,6 +290,10 @@ pub struct SandboxConfig {
     #[serde(skip)]
     pub(crate) snapshot_restore_mode: SnapshotRestoreMode,
 
+    /// Explicit one-shot recovery intent, never inherited by a later restore.
+    #[serde(skip)]
+    pub(crate) legacy_windows_pit_divisor: Option<u32>,
+
     /// Explicit failure policy for external resources during full execution restore.
     #[serde(default)]
     pub(crate) external_mount_policy: microsandbox_types::ExternalMountRestorePolicy,
@@ -626,6 +630,7 @@ impl SandboxConfig {
             config.forked = false;
         }
         config.snapshot_restore_mode = SnapshotRestoreMode::Full;
+        config.legacy_windows_pit_divisor = None;
         config.restore_resources = Default::default();
         config.resumed_from_full_snapshot = false;
         #[cfg(feature = "local")]
@@ -1152,6 +1157,7 @@ impl Default for SandboxConfig {
             branch_memory: None,
             forked: false,
             snapshot_restore_mode: SnapshotRestoreMode::Full,
+            legacy_windows_pit_divisor: None,
             external_mount_policy: microsandbox_types::ExternalMountRestorePolicy::Strict,
             restore_resources: Default::default(),
             resumed_from_full_snapshot: false,
@@ -2234,6 +2240,7 @@ mod tests {
                 },
                 snapshot_restore_mode: restore_mode,
                 checkpoint_restore: Some(CheckpointRestoreConfig {
+                    legacy_windows_pit_divisor: None,
                     memory_descriptor: false,
                     network_gateway_mac: None,
                     external_mount_policy: Default::default(),

@@ -126,6 +126,7 @@ class Sandbox:
         cow_memory: bool = False,
         forked: bool = False,  # Deprecated: use cow_memory.
         disk_only: bool = False,
+        recover_windows_periodic_pit: Optional[int] = None,
         snapshot_base: str | None = None,
         user: str | None = None,
         log_level: LogLevel | None = None,
@@ -157,6 +158,7 @@ class Sandbox:
         cow_memory: bool = False,
         forked: bool = False,  # Deprecated: use cow_memory.
         disk_only: bool = False,
+        recover_windows_periodic_pit: Optional[int] = None,
         snapshot_base: str | None = None,
         user: str | None = None,
         log_level: LogLevel | None = None,

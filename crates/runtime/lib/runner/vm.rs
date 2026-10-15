@@ -1865,7 +1865,7 @@ fn build_vm(
         .checkpoint_restore
         .as_ref()
         .map(|restore| {
-            let prepared = if restore.local_branch {
+            let mut prepared = if restore.local_branch {
                 crate::checkpoint::PreparedCheckpointRestore::open_local(
                     restore.closure.clone(),
                     &restore.checkpoint_id,
@@ -1882,6 +1882,11 @@ fn build_vm(
             .map_err(|error| {
                 RuntimeError::Custom(format!("prepare checkpoint restore: {error}"))
             })?;
+            if let Some(divisor) = restore.legacy_windows_pit_divisor {
+                prepared
+                    .recover_windows_periodic_pit(divisor)
+                    .map_err(RuntimeError::Custom)?;
+            }
             prepared
                 .validate_geometry(vm)
                 .map_err(RuntimeError::Custom)?;
