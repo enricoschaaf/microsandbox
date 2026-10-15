@@ -107,6 +107,13 @@ def progressing(name, saved=None):
                 previous,
                 current,
             )
+            if busy_mode:
+                assert all(a >= b for a, b in zip(current[3:], previous[3:])), (
+                    name,
+                    "busy worker counter decreased",
+                    previous,
+                    current,
+                )
             workers_advanced = not busy_mode or all(
                 a > b for a, b in zip(current[3:], previous[3:])
             )
