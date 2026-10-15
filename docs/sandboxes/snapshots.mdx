@@ -38,6 +38,12 @@ The host must expose nested virtualization and the guest kernel must include KVM
 An explicit enable fails startup on an unsupported host. This restriction
 does not affect ordinary ARM64 sandboxes or their snapshots.
 
+Intel Windows additionally requires Hyper-V enlightened VMCS support. The runtime
+requests it automatically, and the matching Windows guest firmware uses it. Full
+snapshots reject an active Intel nested VM that uses ordinary VMCS state. Older
+nested Windows snapshots from before this fix must be captured again; ordinary
+Windows snapshots are unaffected.
+
 Restore preserves the captured nesting setting and checks backend compatibility. It cannot
 change a nested snapshot into a non-nested sandbox or migrate between host architectures
 or hypervisor backends. Qualification covers a running inner Linux VM through restore,

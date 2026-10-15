@@ -26,6 +26,7 @@ names = [
 ]
 source, restored, fork_a, fork_b, second, archived = names
 sequence = 0
+busy_mode = os.environ.get("NESTED_BUSY") == "1"
 
 
 def run(*args, check=True):
@@ -58,11 +59,19 @@ def sample(name):
     )
     # The producer may still be writing its final record.
     complete = result.stdout.rpartition(b"\n")[0]
-    for line in reversed(complete.splitlines()):
+    lines = complete.splitlines()
+    for index in range(len(lines) - 1, -1, -1):
+        line = lines[index]
         fields = line.split()
         if len(fields) == 5 and fields[0] == b"NESTED_PROGRESS":
             counter, timer, identity = map(int, fields[1:4])
             assert fields[4] == f"disk={counter}".encode(), line
+            if busy_mode:
+                if index == 0:
+                    return None  # Wait for a complete busy/progress record pair.
+                workers = lines[index - 1].split()
+                assert len(workers) == 3 and workers[0] == b"NESTED_BUSY_PROGRESS", workers
+                return counter, timer, identity, *map(int, workers[1:])
             return counter, timer, identity
     return None
 
@@ -82,6 +91,13 @@ def progressing(name, saved=None):
                     saved,
                     current,
                 )
+                if busy_mode:
+                    assert all(a >= b for a, b in zip(current[3:], saved[3:])), (
+                        name,
+                        "busy worker restarted",
+                        saved,
+                        current,
+                    )
             if first is None:
                 first = previous = current
                 started = changed = now
@@ -91,7 +107,10 @@ def progressing(name, saved=None):
                 previous,
                 current,
             )
-            if current[0] > previous[0] and current[1] > previous[1]:
+            workers_advanced = not busy_mode or all(
+                a > b for a, b in zip(current[3:], previous[3:])
+            )
+            if current[0] > previous[0] and current[1] > previous[1] and workers_advanced:
                 changed = now
             assert now - changed < 3, (name, "inner VM stopped progressing", current)
             previous = current
@@ -113,6 +132,8 @@ else:
     machine, console, block = "q35,kernel_irqchip=on", "ttyS0", "virtio-blk-pci"
 
 kernel_args = f"console={console} rdinit=/init panic=-1 quiet"
+if busy_mode:
+    kernel_args += " NESTED_BUSY=1"
 if extra_args := os.environ.get("NESTED_KERNEL_ARGS"):
     kernel_args += f" {extra_args}"
 
@@ -199,6 +220,7 @@ try:
                 "identity": before[2],
                 "architecture": architecture,
                 "kernel_args": kernel_args,
+                "busy_workers": busy_mode,
             }
         )
     )

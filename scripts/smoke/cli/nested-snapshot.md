@@ -84,3 +84,10 @@ On the Windows test host, invoke the runner directly through SSH. PowerShell
 sandbox creation to fail with `Access is denied` even when nesting was disabled.
 A minimal child-process probe reproduced that job restriction independently of
 Microsandbox. Direct SSH invocation passed the complete matrix.
+
+### Busy inner CPUs
+
+Set `NESTED_BUSY=1` when running the Python lifecycle test with the updated
+libkrun full-OS fixture. Both inner workers must keep advancing across restore;
+missing worker records, resets and stalls fail the same observation window as
+the disk/timer workload. Provision enough host CPUs for all live sandbox copies.
