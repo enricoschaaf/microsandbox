@@ -3338,6 +3338,8 @@ The preserved terminal sample of a stopped sandbox; this is not a live reading.
 <Accordion title="Example">
 
 ```rust
+use microsandbox::Sandbox;
+
 Sandbox::builder("nested").image("alpine").nested_virt(true).create().await?;
 ```
 
