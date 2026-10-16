@@ -3259,6 +3259,8 @@ Point-in-time resource usage snapshot.
 <Accordion title="Example">
 
 ```rust
+use microsandbox::Sandbox;
+
 Sandbox::builder("nested").image("alpine").nested_virt(true).create().await?;
 ```
 
