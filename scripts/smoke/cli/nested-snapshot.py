@@ -32,8 +32,19 @@ busy_mode = os.environ.get("NESTED_BUSY") == "1"
 def run(*args, check=True):
     global sequence
     sequence += 1
+    executable = binary
+    environment = os.environ.copy()
+    if args[0] == "run":
+        executable = os.environ.get("NESTED_SOURCE_MSB_PATH", binary)
+        environment["MSB_PATH"] = executable
+        environment.update(json.loads(os.environ.get("NESTED_SOURCE_ENV", "{}")))
     result = subprocess.run(
-        [binary, *map(str, args)], capture_output=True, timeout=180, check=False
+        [executable, *map(str, args)],
+        env=environment,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        timeout=180,
+        check=False,
     )
     log = results / f"{sequence:04d}-{args[0]}"
     log.with_suffix(".out").write_bytes(result.stdout)
@@ -122,6 +133,10 @@ def progressing(name, saved=None):
             assert now - changed < 3, (name, "inner VM stopped progressing", current)
             previous = current
             if now - started >= 10 and current[0] > first[0] + 20:
+                if os.environ.get("NESTED_CHECK_CLOCK_RATE") == "1":
+                    ratio = (current[1] - first[1]) / 1000 / (now - started)
+                    assert 0.8 <= ratio <= 1.2, (name, "guest clock rate", ratio)
+                    print(name, "guest/host elapsed-time ratio", ratio, flush=True)
                 state = json.loads(run("inspect", name, "--format", "json").stdout)
                 assert state["config"]["resources"]["nested_virt"] is True, state
                 assert state["status"] == "Running", state

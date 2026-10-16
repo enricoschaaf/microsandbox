@@ -97,3 +97,12 @@ Apple M5 Pro macOS, including archive export/import. Intel and AMD Windows also
 passed the full matrix with both busy inner workers using the precise PIT timer
 implementation. All six sandbox copies remained live until cleanup; worker
 counters, disk records, timer progress, and workload identity were checked.
+
+For cross-frequency restore validation, set `NESTED_CHECK_CLOCK_RATE=1` to compare
+the inner Linux monotonic clock against host elapsed time. Use
+`NESTED_SOURCE_MSB_PATH` to select an isolated source executable, and
+`NESTED_SOURCE_ENV` (a JSON object) for source-only environment settings. These
+apply only to the initial `run`; restore and fork commands use `MSB_PATH` and the
+normal environment. This allows a source-clock fixture to request a non-native
+hypervisor rate without changing the destination runtime or rewriting snapshots.
+The libkrun `tests/nested-restore/clock-source` fixture documents setup and limits.
