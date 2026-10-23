@@ -198,7 +198,7 @@ pub struct LaunchConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nested_virt: Option<bool>,
 
-    /// Opt into the automatic host default; absent in older launchers that omitted false.
+    /// Legacy automatic-policy hint, accepted for decoding but never enables nesting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nested_virt_auto: Option<bool>,
 
@@ -455,11 +455,10 @@ pub struct FileMountConfig {
 //--------------------------------------------------------------------------------------------------
 
 impl LaunchConfig {
-    /// Resolve nesting without treating an old launcher's omitted false as automatic.
-    /// Explicit policy takes precedence and only an automatic request probes the host.
-    pub fn resolve_nested_virt(&self, host_default: impl FnOnce() -> bool) -> bool {
-        self.nested_virt
-            .unwrap_or_else(|| self.nested_virt_auto == Some(true) && host_default())
+    /// Resolve the effective policy. Only an explicit setting can enable nesting.
+    /// The legacy automatic hint is accepted but cannot opt a sandbox in.
+    pub fn resolve_nested_virt(&self) -> bool {
+        self.nested_virt.unwrap_or(false)
     }
 
     /// Decode and validate execution intent before allocating or starting a VM.
@@ -690,22 +689,16 @@ mod tests {
             assert_eq!(encoded.get("nested_virt").is_some(), enabled.is_some());
             let decoded = decode(encoded).unwrap();
             assert_eq!(decoded.nested_virt, enabled);
-            assert_eq!(
-                decoded.resolve_nested_virt(|| panic!("legacy launch must not probe")),
-                enabled.unwrap_or(false)
-            );
+            assert_eq!(decoded.resolve_nested_virt(), enabled.unwrap_or(false));
 
-            for supported in [false, true] {
+            for automatic_hint in [false, true] {
                 let automatic = LaunchConfig {
                     nested_virt: enabled,
-                    nested_virt_auto: Some(true),
+                    nested_virt_auto: Some(automatic_hint),
                     ..Default::default()
                 };
                 let decoded = decode(serde_json::to_value(automatic).unwrap()).unwrap();
-                assert_eq!(
-                    decoded.resolve_nested_virt(|| supported),
-                    enabled.unwrap_or(supported)
-                );
+                assert_eq!(decoded.resolve_nested_virt(), enabled.unwrap_or(false));
             }
         }
     }

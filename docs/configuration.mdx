@@ -276,7 +276,7 @@ Proxy defaults do not enable disabled networking or route host downloads. Cloud 
 
 </Accordion>
 
-For example, explicitly disable nested virtualization while allowing individual local sandboxes to opt in. Older runtimes that cannot disable nesting will require an upgrade:
+Nested virtualization is disabled by default. Set `nested_virt` to `true` to opt in globally, or enable it per sandbox. Older runtimes that cannot enforce disabled nesting require an upgrade. For example, explicitly keep the global default off:
 
 ```json
 {

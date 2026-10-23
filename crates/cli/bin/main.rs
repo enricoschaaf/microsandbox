@@ -308,9 +308,11 @@ fn main() {
                     guest_clock: true,
                     fs_state_limit: true,
                     nested_virt: true,
-                    nested_virt_auto: true,
+                    nested_virt_auto: false,
                     windows_pit_recovery: cfg!(all(target_os = "windows", target_arch = "x86_64")),
-                    nested_virt_supported: Some(microsandbox_runtime::default_nested_virt()),
+                    nested_virt_supported: Some(
+                        microsandbox_runtime::nested_virt_supported().unwrap_or(false)
+                    ),
                 })
                 .expect("serialize capabilities")
             );

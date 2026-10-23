@@ -251,7 +251,7 @@ impl LaunchContract {
         Ok(value)
     }
 
-    /// Negotiate automatic nesting and explicit off without changing older launcher semantics.
+    /// Send default-off policy explicitly when the selected runtime supports it.
     pub(crate) async fn encode_for_runtime(
         self,
         path: &Path,
@@ -283,10 +283,8 @@ impl LaunchContract {
                 )));
             }
 
-            if launch.nested_virt == Some(false) && capabilities.nested_virt {
+            if capabilities.nested_virt {
                 value["nested_virt"] = false.into();
-            } else if launch.nested_virt.is_none() && capabilities.nested_virt_auto {
-                value["nested_virt_auto"] = true.into();
             }
         }
 
@@ -788,9 +786,7 @@ pub(crate) async fn validate_nested_virt(
     config: &SandboxConfig,
     contract: LaunchContract,
 ) -> MicrosandboxResult<()> {
-    let Some(enabled) = config.spec.resources.nested_virt else {
-        return Ok(());
-    };
+    let enabled = config.spec.resources.nested_virt.unwrap_or(false);
     // Legacy encoding cannot carry an explicit enable, including wrappers around
     // new runtimes. Never infer support from historical VMX exposure.
     if !cfg!(all(target_os = "linux", target_arch = "x86_64")) && !enabled {
@@ -1478,8 +1474,7 @@ mod tests {
                 ))
                 .unwrap();
                 config.spec.resources.nested_virt = requested;
-                let expected = requested.is_none()
-                    || requested == Some(false) && (!legacy_enabled || version == "0.7.7");
+                let expected = requested != Some(true) && (!legacy_enabled || version == "0.7.7");
                 let result = validate_nested_virt(&path, &config, contract).await;
                 assert_eq!(result.is_ok(), expected, "{version}: {requested:?}");
                 if expected {
@@ -1540,14 +1535,9 @@ mod tests {
             .unwrap();
             assert_eq!(
                 payload.get("nested_virt"),
-                requested.map(serde_json::Value::Bool).as_ref()
+                Some(&serde_json::Value::Bool(requested.unwrap_or(false)))
             );
-            assert_eq!(
-                payload.get("nested_virt_auto"),
-                requested
-                    .is_none()
-                    .then_some(&serde_json::Value::Bool(true))
-            );
+            assert_eq!(payload.get("nested_virt_auto"), None);
         }
 
         // A capable runtime behind a legacy wrapper still cannot receive a

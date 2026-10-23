@@ -218,7 +218,7 @@ pub fn run(args: MachineArgs) -> ! {
                 eprintln!("failed to acquire sandbox lifecycle ownership: {err}");
                 std::process::exit(2);
             });
-    let nested_virt = launch.resolve_nested_virt(microsandbox_runtime::default_nested_virt);
+    let nested_virt = launch.resolve_nested_virt();
     let is_vmdk = launch.rootfs.disk_format.as_deref() == Some("vmdk");
     let disks = match parse_disk_args(&launch.disks) {
         Ok(disks) => disks,

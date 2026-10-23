@@ -366,9 +366,8 @@ impl SandboxBuilder {
 
     /// Enable or disable nested virtualization for a local sandbox.
     ///
-    /// Enabled by default where the host supports it on current runtimes. Omitting
-    /// this setting preserves older runtimes' defaults. Explicit choices require
-    /// a runtime that can honor them.
+    /// Disabled by default unless enabled by configuration. Runtimes that cannot
+    /// enforce the effective policy require an upgrade.
     /// The host hypervisor must support nesting, and the guest
     /// kernel must support KVM. Enabling it on an unsupported host fails at startup.
     pub fn nested_virt(mut self, enabled: bool) -> Self {
