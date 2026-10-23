@@ -17,47 +17,30 @@ Disk is the default. Full adds memory and execution state; there is no memory-on
 | **Disk** | Files and owned volumes | Boots a new VM |
 | **Full** | Disk, memory, and running processes | Resumes execution |
 
-Local snapshot capture requests allow up to 30 minutes for the runtime reply,
-including storage publication and source recovery. Windows and macOS fork captures
-use the same budget. Large captures or busy hosts can exceed the shorter deadline
-used by ordinary control operations. A capture request is never automatically retried after an uncertain timeout.
+<Accordion title="Capture timeouts">
+Local captures, including Windows and macOS forks, allow up to 30 minutes. Requests are not automatically retried after an uncertain timeout.
+</Accordion>
 
 ## Nested VM snapshots
 
-A full snapshot of a local sandbox with nested virtualization enabled saves the running
-inner VM as well as the outer sandbox. Restore resumes the inner workload; a fork creates
-an independent copy of its captured state. Disk-only snapshots still boot a new VM.
+Full snapshots save a running inner VM alongside its sandbox. Restore resumes both; a fork creates an independent copy. Disk snapshots boot a new VM.
 
-| Host platform | Nested virtualization and full snapshots |
+Nesting is off by default. Enable it per sandbox with `--nested-virt` or the SDK's nesting option, or set [`sandbox_defaults.nested_virt`](/configuration#sandbox_defaults) globally.
+
+| Host | Requirements |
 | --- | --- |
-| Linux x86-64, Intel or AMD | Supported with host nesting support |
-| Windows x86-64, Intel or AMD | Supported with Windows Hypervisor Platform nesting support |
-| Apple Silicon macOS | Supported with Hypervisor.framework nesting support |
-| Linux ARM64 | Not currently supported |
-| Windows ARM64 | Not currently supported |
+| Linux x86-64 (Intel or AMD) | Host nesting support |
+| Windows x86-64 (Intel or AMD) | Windows Hypervisor Platform nesting; enlightened VMCS on Intel |
+| Apple Silicon macOS | Hypervisor.framework nesting support |
+| Linux ARM64 / Windows ARM64 | Nested virtualization is not supported |
 
-Nesting is disabled by default on every host. Enable it explicitly with the sandbox's `nested_virt` setting
-(or `nestedVirt` in TypeScript), the CLI's `--nested-virt`, or
-`sandbox_defaults.nested_virt` in [global configuration](/configuration#sandbox_defaults).
-The host must expose nested virtualization and the guest kernel must include KVM support.
-An explicit enable fails startup on an unsupported host. This restriction
-does not affect ordinary ARM64 sandboxes or their snapshots.
+Use a runtime and guest firmware with nested snapshot support, including guest KVM. Enabling nesting on an unsupported host fails startup; ordinary ARM64 sandboxes and snapshots are unaffected.
 
-Intel Windows additionally requires Hyper-V enlightened VMCS support. The runtime
-requests it automatically, and the matching Windows guest firmware uses it. Full
-snapshots reject an active Intel nested VM that uses ordinary VMCS state. Older
-nested Windows snapshots using ordinary VMCS state must be captured again. See
-[Windows timer recovery](#recover-missing-windows-timer-state) for timer-state compatibility
-and explicit recovery options.
+<Accordion title="Restore compatibility">
+Restore preserves the captured nesting setting. You cannot change it or switch host architectures or hypervisor backends. Cross-host migration, external mount recovery, and network connection recovery are not guaranteed.
 
-Restore preserves the captured nesting setting and checks backend compatibility. It cannot
-change a nested snapshot into a non-nested sandbox or migrate between host architectures
-or hypervisor backends. Qualification covers a running inner Linux VM through restore,
-forks, second-generation snapshots, and archive export/import on Linux and Windows
-x86-64 and qualified Apple Silicon macOS.
-It does not guarantee
-cross-host migration, external mount recovery, or restoration of network connections.
-Use matching runtime and guest firmware builds that include nested snapshot support.
+Older runtimes that cannot enforce disabled nesting require an upgrade. On Intel Windows, the runtime requests enlightened VMCS automatically; active nested VMs using ordinary VMCS cannot be fully captured or resumed. See [Windows snapshot recovery](#recapture-an-older-windows-nested-snapshot).
+</Accordion>
 
 ## Disk snapshots
 
@@ -452,61 +435,44 @@ Snapshots with a tmpfs root cannot be restored disk-only.
 
 ### Recapture an older Windows nested snapshot
 
-Windows nested snapshots created before enlightened VMCS support cannot resume
-with the new runtime. Use disk-only restore to boot a separate sandbox with the
-updated runtime and firmware:
+Older Intel Windows nested snapshots without enlightened VMCS state need a fresh boot with updated runtime and firmware:
 
 ```bash
 msb snapshot restore worker:old --name recovered --disk-only
 ```
 
-This preserves the saved disk contents, but does not preserve running processes,
-RAM, or the inner VM's execution state. Writes still buffered in captured RAM are
-not recovered by disk-only restore. Start your application and nested VM again
-in `recovered`, verify they are working, then create a new full snapshot. Any
-managed jobs started with detached exec must finish before full capture:
+Restart your application and inner VM, finish any detached exec jobs, then capture and test a replacement:
 
 ```bash
 msb snapshot create upgraded --from-sandbox recovered --full
 msb snapshot restore recovered:upgraded --name verified
 ```
 
-Keep the original snapshot until you have verified the new one. Merely capturing
-an old, still-running sandbox again does not enable enlightened VMCS; it must boot
-with the updated runtime. This recovery path requires a disk-backed root and the
-snapshot's base image, and any external mounts must be supplied again. Normal full
-restore never silently falls back to restarting from disk.
+<Accordion title="Recovery limits">
+Disk-only restore preserves saved files, but loses running processes, RAM, the inner VM's execution state, and writes buffered only in memory. It requires a disk-backed root and the base image; supply external mounts again.
+
+Recapturing a still-running old sandbox does not enable enlightened VMCS. Keep the original snapshot until the replacement is verified. Full restore never silently falls back to disk-only recovery.
+</Accordion>
 
 ### Recover missing Windows timer state
 
-New Windows x86 full snapshots save the emulated PIT timer, including its remaining
-period and partially written settings. Older snapshots did not save this state.
-Normal restore refuses those snapshots with recovery instructions, because restoring
-a stopped timer can freeze the guest clock and make commands hang.
+New Windows x86 full snapshots save PIT timer state. Older snapshots lack it and are rejected to prevent frozen clocks or hanging commands. Prefer a [disk-only restart](#recapture-an-older-windows-nested-snapshot).
 
-The safest recovery is the disk-only restart described above. If you know the
-original guest used a periodic channel-0 PIT and know its reload value, you can
-explicitly supply that value while restoring its running state:
+<Accordion title="Recover a known periodic timer without restarting">
+If the guest used a periodic channel-0 PIT and you know its reload divisor, supply it explicitly:
 
 ```bash
 msb snapshot restore worker:old --name recovered --recover-windows-periodic-pit 4773
 ```
 
-`4773` is an example for a known 250 Hz PIT configuration, **not a universal default**.
-The reload must be between 1 and 65536. Recovery starts a fresh timer period; the
-original phase, partially written settings, and other PIT channels cannot be
-reconstructed. Do not use it when those settings are unknown or exact timer
-continuity matters. Verify commands, sleeps, and your application, then capture a
-new full snapshot and test restoring it without the recovery option. Keep the
-original until you have verified the replacement.
+`4773` is an example for a known 250 Hz configuration, not a default. Valid divisors are 1–65536. Recovery starts a new period; it cannot reconstruct the original phase, partial settings, or other PIT channels. Do not use it for unknown settings or when exact timer continuity matters.
 
-The equivalent SDK options are Rust `.recover_windows_periodic_pit(divisor)`,
-Python `recover_windows_periodic_pit=divisor`, Node
-`.recoverWindowsPeriodicPit(divisor)`, and Go
-`WithRecoverWindowsPeriodicPIT(divisor)`. They apply only to local Windows x86
-full restores and cannot be combined with disk-only restore. CPU, frequency,
-topology, and nested-state compatibility checks still apply. Older nested
-snapshots without enlightened VMCS state still require a disk-only restart.
+SDK equivalents: Rust `.recover_windows_periodic_pit(divisor)`, Python `recover_windows_periodic_pit=divisor`, Node `.recoverWindowsPeriodicPit(divisor)`, and Go `WithRecoverWindowsPeriodicPIT(divisor)`.
+
+This option only applies to local Windows x86 full restores, cannot accompany disk-only restore, and does not bypass CPU, frequency, topology, or nested-state checks. Snapshots missing enlightened VMCS still need a restart.
+
+Verify commands, sleeps, and your application; capture a new full snapshot and restore it without the option. Keep the original until the replacement is verified.
+</Accordion>
 
 ### Keep the guest clock
 

@@ -277,17 +277,17 @@ Proxy defaults do not enable disabled networking or route host downloads. Cloud 
 
 </Accordion>
 
-Nested virtualization is disabled by default. Set `nested_virt` to `true` to opt in globally, or enable it per sandbox. Older runtimes that cannot enforce disabled nesting require an upgrade. For example, explicitly keep the global default off:
+Enable nesting by default for local sandboxes:
 
 ```json
 {
   "sandbox_defaults": {
-    "nested_virt": false
+    "nested_virt": true
   }
 }
 ```
 
-Per-sandbox SDK settings and `--nested-virt=true` override this user default. A managed configuration override takes precedence over both. Full snapshots, execution restore, and forks support running nested VMs on qualified Linux x86-64, Windows x86-64, and Apple Silicon macOS hosts. Nested virtualization is not currently supported on Linux ARM64 or Windows ARM64. See [nested VM snapshots](/sandboxes/snapshots#nested-vm-snapshots) for requirements and limits.
+Per-sandbox settings override this user default; managed overrides take precedence. See [nested VM snapshots](/sandboxes/snapshots#nested-vm-snapshots) for host requirements and restore limits.
 
 ### `sandbox_defaults.oci`
 

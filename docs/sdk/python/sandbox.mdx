@@ -2270,12 +2270,8 @@ Discriminator returned by [`PullEvent.event_type`](#pullevent).
 
 ## Nested virtualization
 
-`nested_virt: bool | None` controls nested virtualization for a local sandbox. Omit it to use the runtime default. See [nested VM snapshots](/sandboxes/snapshots#nested-vm-snapshots) for platform support and restore requirements.
-
-<Accordion title="Example">
+`nested_virt: bool | None` controls nested virtualization for a local sandbox. Omit it to inherit configuration (off by default). See [nested VM snapshots](/sandboxes/snapshots#nested-vm-snapshots) for requirements.
 
 ```python
 sandbox = await Sandbox.create(name="nested", image="alpine", nested_virt=True)
 ```
-
-</Accordion>
