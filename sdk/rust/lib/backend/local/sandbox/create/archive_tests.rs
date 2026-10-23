@@ -234,6 +234,23 @@ async fn backend(root: &Path, patch: u8) -> Arc<LocalBackend> {
     Arc::new(backend)
 }
 
+// Historical Linux x86 runtimes cannot enforce nesting off, so admission must
+// reject them before inspecting their archive launch contract.
+fn historical_admission_reason(archive_reason: &str) -> &str {
+    if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        "does not support nested virtualization policy"
+    } else {
+        archive_reason
+    }
+}
+
+fn backend_without_runtime(root: &Path) -> Arc<LocalBackend> {
+    Arc::new(local_backend(GlobalConfig {
+        home: Some(root.join("home")),
+        ..Default::default()
+    }))
+}
+
 async fn assert_rejection_preserves_target(
     backend: Arc<LocalBackend>,
     archive: &Path,
@@ -327,7 +344,7 @@ async fn archive_flat_layout_is_admitted_before_replacement() {
             assert_rejection_preserves_target(
                 backend(root.path(), patch).await,
                 &archive,
-                "newer runtime launch contract",
+                historical_admission_reason("newer runtime launch contract"),
             )
             .await;
         }
@@ -341,7 +358,7 @@ async fn archive_disk_chain_is_admitted_before_replacement() {
     assert_rejection_preserves_target(
         backend(root.path(), 18).await,
         &archive,
-        "disk chains require a newer runtime launch contract",
+        historical_admission_reason("disk chains require a newer runtime launch contract"),
     )
     .await;
 }
@@ -353,7 +370,7 @@ async fn managed_root_layout_conflict_preserves_replacement_target() {
     for flat in [false, true] {
         let root = tempfile::tempdir_in("/tmp").unwrap();
         let archive = archive(root.path(), flat, false).await;
-        let mut backend = backend(root.path(), 18).await;
+        let mut backend = backend_without_runtime(root.path());
         let user = GlobalConfigPatch::from_present_fields(backend.config().clone());
         let managed = serde_json::from_value(serde_json::json!({
             "sandbox_defaults": {"oci": {"root_disk": {
@@ -371,7 +388,7 @@ async fn corrupt_archive_does_not_replace_target() {
     let root = tempfile::tempdir_in("/tmp").unwrap();
     let archive = root.path().join("broken.msnap");
     std::fs::write(&archive, b"not a tar archive").unwrap();
-    let backend = backend(root.path(), 18).await;
+    let backend = backend_without_runtime(root.path());
     let stage = tempfile::tempdir_in(root.path()).unwrap();
     let reason = match crate::snapshot::materialize_archive_for_child(
         &backend,
@@ -416,11 +433,11 @@ async fn copy_on_write_disk_archive_preserves_replacement_target() {
 }
 
 #[tokio::test]
-async fn disk_only_restore_from_full_archive_passes_admission() {
+async fn historical_runtime_rejects_disk_only_restore_before_launch() {
     let root = tempfile::tempdir_in("/tmp").unwrap();
     let archive = checkpoint_archive(root.path()).await;
-    // The newest historical contract admits the request, then rejects the
-    // materialized disk chain, so reaching that check proves restore admission passed.
+    // Linux x86 rejects the old runtime at nesting preflight. Other hosts
+    // admit disk-only restore, then reject the materialized disk chain.
     let backend = backend(root.path(), 18).await;
 
     // Match the public restore builder: the reference is resolved during preparation.
@@ -437,9 +454,9 @@ async fn disk_only_restore_from_full_archive_passes_admission() {
     };
 
     assert!(
-        error
-            .to_string()
-            .contains("disk chains require a newer runtime launch contract"),
+        error.to_string().contains(historical_admission_reason(
+            "disk chains require a newer runtime launch contract"
+        )),
         "{error}"
     );
 }
@@ -516,7 +533,9 @@ async fn current_catalog_persistence_is_separate_from_create_admission() {
     .await
     .unwrap_err();
     assert!(
-        error.to_string().contains("newer runtime launch contract"),
+        error
+            .to_string()
+            .contains(historical_admission_reason("newer runtime launch contract")),
         "{error}"
     );
     assert!(
