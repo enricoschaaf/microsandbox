@@ -35,11 +35,11 @@ function run(cwd: string, argv?: string): string | null {
   symlinkSync(sdk, join(consumer, "node_modules", "microsandbox"), process.platform === "win32" ? "junction" : "dir");
   const code = `import { msbPath } from 'microsandbox';
     console.log(JSON.stringify(msbPath()));`;
-  // Use actual Node argv/cwd rather than changing the Vitest process globals.
+  // Use actual runtime argv/cwd rather than changing the Vitest process globals.
   if (argv) writeFileSync(argv, code);
   const args = argv ? [argv] : ["--input-type=module", "-e", code];
-  // Keep missing-package cases inside the fixture instead of letting Bun
-  // auto-install a real platform package into its shared cache.
+  // Bun must resolve only the fixture packages, not auto-install a missing
+  // package from the registry when probing the isolated SDK directory.
   if (process.versions.bun) args.unshift("--no-install");
   const result = spawnSync(process.execPath, args, { cwd, encoding: "utf8", timeout: 30000 });
   expect(result.error).toBeUndefined();
@@ -50,10 +50,10 @@ function run(cwd: string, argv?: string): string | null {
 describe("SDK packaged binary resolver", () => {
   const names = ["ordinary", "hash#name", "percent%name", "encoded%2Fname", "encoded%23name", "space name", "中文", ...(process.platform === "win32" ? [] : ["query?name"])];
   for (const fallback of ["cwd", "argv"] as const) {
-    // Bun cannot load an entrypoint containing '?', before our resolver runs.
-    // Node covers that argv case; Bun still covers '?' in the cwd fallback.
-    const supportedNames = process.versions.bun && fallback === "argv"
-      ? names.filter((name) => name !== "query?name") : names;
+    // Bun cannot launch an entrypoint whose path contains `?`. Node still
+    // covers that argv case; Bun covers the same character through cwd.
+    const supportedNames = names.filter((name) =>
+      !(process.versions.bun && fallback === "argv" && name.includes("?")));
     it.each(supportedNames)(`${fallback} resolves the exact package in %s`, (name) => {
       const consumer = join(root, name);
       mkdirSync(consumer);

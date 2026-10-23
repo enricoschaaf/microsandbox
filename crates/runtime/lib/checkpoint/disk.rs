@@ -1906,7 +1906,6 @@ mod tests {
             owned_volumes: Vec::new(),
             disks: Vec::new(),
             vsock: Vec::new(),
-            #[cfg(unix)]
             backends: Vec::new(),
             init_path: None,
             bootstrap: Default::default(),
