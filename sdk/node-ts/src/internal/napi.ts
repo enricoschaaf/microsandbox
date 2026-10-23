@@ -293,8 +293,6 @@ export interface NapiRestoreBuilderSetters {
   /** @deprecated Use cowMemory() instead. */
   forked(): this;
   diskOnly(): this;
-  /** Recover missing Windows PIT state using a known periodic reload (1..65536). */
-  recoverWindowsPeriodicPit(divisor: number): this;
   snapshotBase(base: string): this;
   logLevel(level: string): this;
   user(user: string): this;

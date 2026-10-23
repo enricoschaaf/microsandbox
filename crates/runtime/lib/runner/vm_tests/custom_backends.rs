@@ -170,6 +170,7 @@ fn build(config: &mut Config) -> RuntimeResult<VmBuildOutput> {
             numa_topology: None,
         },
         None,
+        &mut Vec::new(),
     )
 }
 
@@ -205,6 +206,7 @@ fn config(directory: &Path) -> Config {
         vm: VmConfig {
             libkrunfw_path: Default::default(),
             thp: Default::default(),
+            nested_virt: false,
             guest_clock: Default::default(),
             memory_cache_dir: None,
             vcpus: 1,

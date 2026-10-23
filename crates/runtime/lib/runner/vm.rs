@@ -1943,7 +1943,7 @@ fn build_vm(
         .checkpoint_restore
         .as_ref()
         .map(|restore| {
-            let mut prepared = if restore.local_branch {
+            let prepared = if restore.local_branch {
                 crate::checkpoint::PreparedCheckpointRestore::open_local(
                     restore.closure.clone(),
                     &restore.checkpoint_id,
@@ -1960,11 +1960,6 @@ fn build_vm(
             .map_err(|error| {
                 RuntimeError::Custom(format!("prepare checkpoint restore: {error}"))
             })?;
-            if let Some(divisor) = restore.legacy_windows_pit_divisor {
-                prepared
-                    .recover_windows_periodic_pit(divisor)
-                    .map_err(RuntimeError::Custom)?;
-            }
             prepared
                 .validate_geometry(vm)
                 .map_err(RuntimeError::Custom)?;
@@ -4342,6 +4337,7 @@ mod tests {
         let mut vm = VmConfig {
             libkrunfw_path: std::path::PathBuf::from("/nonexistent/libkrunfw.so"),
             thp: Default::default(),
+            nested_virt: false,
             guest_clock: Default::default(),
             memory_cache_dir: None,
             vcpus: 1,
@@ -4447,7 +4443,7 @@ mod tests {
         };
         // An empty chain fails validate_upper_layers, which runs after the
         // flat-root branch created and registered the bootstrap trampoline.
-        let config = build_vm_test_config(scratch.path(), |vm| {
+        let mut config = build_vm_test_config(scratch.path(), |vm| {
             vm.rootfs_disk_spec = Some(UpperSpec {
                 layers: Vec::new(),
                 read_only: false,
@@ -4455,7 +4451,7 @@ mod tests {
         });
 
         let result = super::build_vm(
-            &config,
+            &mut config,
             super::AgentConsoleBackends {
                 control: crate::runner::console::AgentConsoleBackend::new(Arc::new(
                     ConsoleSharedState::new(),
@@ -4514,7 +4510,7 @@ mod tests {
         };
         std::fs::create_dir_all(scratch.path().join("runtime")).unwrap();
         std::fs::create_dir_all(scratch.path().join("runtime").join("scripts")).unwrap();
-        let config = build_vm_test_config(scratch.path(), |vm| {
+        let mut config = build_vm_test_config(scratch.path(), |vm| {
             vm.rootfs_vmdk = Some(scratch.path().join("rootfs.vmdk"));
             vm.rootfs_upper_spec = Some(UpperSpec {
                 layers: vec![UpperLayerSpec {
@@ -4526,7 +4522,7 @@ mod tests {
         });
 
         let result = super::build_vm(
-            &config,
+            &mut config,
             super::AgentConsoleBackends {
                 control: crate::runner::console::AgentConsoleBackend::new(Arc::new(
                     ConsoleSharedState::new(),

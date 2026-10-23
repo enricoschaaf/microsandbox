@@ -275,16 +275,6 @@ impl LaunchContract {
         launch: &LaunchConfig,
     ) -> MicrosandboxResult<Value> {
         let mut value = self.encode(launch)?;
-        if launch
-            .checkpoint_restore
-            .as_ref()
-            .is_some_and(|restore| restore.legacy_windows_pit_divisor.is_some())
-            && !capabilities(path).await?.windows_pit_recovery
-        {
-            return Err(MicrosandboxError::Runtime(upgrade_required(
-                "Windows PIT recovery",
-            )));
-        }
         if launch.nested_virt == Some(true) {
             validate_nested_host(capabilities(path).await?.as_ref())?;
         }
@@ -300,7 +290,7 @@ impl LaunchContract {
                 )));
             }
 
-            if capabilities.nested_virt {
+            if capabilities.nested_virt.is_some() {
                 value["nested_virt"] = false.into();
             }
         }
@@ -344,7 +334,6 @@ impl LaunchContract {
             "checkpoint_restore",
             "memory_cache_dir",
             "nested_virt",
-            "nested_virt_auto",
         ] {
             fields.remove(key);
         }
@@ -516,7 +505,6 @@ impl LaunchContract {
             placement_profile_name: resources.placement_profile.clone(),
             thp: resources.thp,
             nested_virt: resources.nested_virt,
-            nested_virt_auto: None,
             guest_clock: config.spec.runtime.guest_clock.unwrap_or_default(),
             vsock: config.spec.vsock.routes.clone(),
             owned_volumes: config
@@ -670,19 +658,6 @@ pub(crate) async fn validate_runtime_config(
         Err(error) => return Err(error),
     };
     let contract = resolve(&runtime.msb_path).await?;
-    if let Some(divisor) = config.legacy_windows_pit_divisor {
-        if !cfg!(all(target_os = "windows", target_arch = "x86_64"))
-            || !(1..=65536).contains(&divisor)
-            || config.snapshot_restore_mode == crate::sandbox::config::SnapshotRestoreMode::DiskOnly
-        {
-            return Err(MicrosandboxError::InvalidConfig("periodic PIT recovery requires a Windows x86 full restore and a divisor between 1 and 65536".into()));
-        }
-        if !capabilities(&runtime.msb_path).await?.windows_pit_recovery {
-            return Err(MicrosandboxError::Runtime(upgrade_required(
-                "Windows PIT recovery",
-            )));
-        }
-    }
     validate_nested_virt(&runtime.msb_path, config, contract).await?;
     contract.validate_launch_intent(config)?;
     #[cfg(feature = "net")]
@@ -813,7 +788,7 @@ pub(crate) async fn validate_nested_virt(
 
     if let Ok(capabilities) = capabilities(path).await
         && capabilities.protocols.contains(&2)
-        && capabilities.nested_virt
+        && capabilities.nested_virt.is_some()
     {
         if enabled {
             validate_nested_host(&capabilities)?;
@@ -838,12 +813,12 @@ pub(crate) async fn validate_nested_virt(
 }
 
 fn validate_nested_host(capabilities: &LaunchCapabilities) -> MicrosandboxResult<()> {
-    if !capabilities.protocols.contains(&2) || !capabilities.nested_virt {
+    if !capabilities.protocols.contains(&2) || capabilities.nested_virt.is_none() {
         return Err(MicrosandboxError::Runtime(upgrade_required(
             "nested virtualization policy",
         )));
     }
-    match capabilities.nested_virt_supported {
+    match capabilities.nested_virt {
         Some(true) => Ok(()),
         Some(false) => Err(MicrosandboxError::unsupported(
             crate::error::Operation::SandboxStart,
@@ -852,7 +827,7 @@ fn validate_nested_host(capabilities: &LaunchCapabilities) -> MicrosandboxResult
             ),
         )),
         None => Err(MicrosandboxError::Runtime(upgrade_required(
-            "nested virtualization host validation",
+            "nested virtualization policy",
         ))),
     }
 }
@@ -1486,59 +1461,6 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn pit_recovery_requires_runtime_support_and_retains_the_explicit_reload() {
-        let dir = tempfile::tempdir().unwrap();
-        let contract = LaunchContract {
-            patch: 18,
-            machine: true,
-        };
-        for supported in [false, true] {
-            let path = script(
-                dir.path(),
-                &format!("pit-{supported}"),
-                &format!(
-                    "printf '%s' '{{\"protocols\":[2,1],\"windows_pit_recovery\":{supported}}}'"
-                ),
-            );
-            for divisor in [None, Some(4773)] {
-                let launch = LaunchConfig {
-                    checkpoint_restore: Some(
-                        microsandbox_runtime::launch::CheckpointRestoreConfig {
-                            legacy_windows_pit_divisor: divisor,
-                            ..Default::default()
-                        },
-                    ),
-                    ..Default::default()
-                };
-                let result = contract.encode_for_runtime(&path, &launch).await;
-                if divisor.is_some() && !supported {
-                    assert!(
-                        result
-                            .unwrap_err()
-                            .to_string()
-                            .contains("Windows PIT recovery")
-                    );
-                } else {
-                    let payload = result.unwrap();
-                    if let Some(divisor) = divisor {
-                        assert_eq!(
-                            payload["checkpoint_restore"]["legacy_windows_pit_divisor"],
-                            divisor
-                        );
-                    } else {
-                        assert!(
-                            payload["checkpoint_restore"]
-                                .get("legacy_windows_pit_divisor")
-                                .is_none()
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
     async fn nested_virt_requires_a_runtime_that_honors_the_setting() {
         let dir = tempfile::tempdir().unwrap();
         let legacy_enabled = cfg!(all(target_os = "linux", target_arch = "x86_64"));
@@ -1602,7 +1524,7 @@ mod tests {
         let path = script(
             dir.path(),
             "nested-supported",
-            r#"printf '%s' '{"protocols":[2,1],"nested_virt":true,"nested_virt_auto":true,"nested_virt_supported":true}'"#,
+            r#"printf '%s' '{"protocols":[2,1],"nested_virt":true}'"#,
         );
         let contract = LaunchContract {
             patch: 18,
@@ -1682,21 +1604,35 @@ mod tests {
 
         for (host_support, expected) in [
             (
-                ",\"nested_virt_supported\":false",
+                ",\"nested_virt\":false",
                 "nested virtualization is unavailable",
             ),
-            ("", "nested virtualization host validation"),
+            ("", "nested virtualization policy"),
         ] {
             let path = script(
                 dir.path(),
                 "unsupported-host",
-                &format!(r#"printf '%s' '{{"protocols":[2,1],"nested_virt":true{host_support}}}'"#),
+                &format!(r#"printf '%s' '{{"protocols":[2,1]{host_support}}}'"#),
             );
             let error = validate_nested_virt(&path, &config, contract)
                 .await
                 .unwrap_err();
 
             assert!(error.to_string().contains(expected), "{error}");
+
+            // A host without nesting still accepts and receives an explicit disable.
+            if !host_support.is_empty() {
+                config.spec.resources.nested_virt = Some(false);
+                validate_nested_virt(&path, &config, contract)
+                    .await
+                    .unwrap();
+                let payload = contract
+                    .encode_for_runtime(&path, &LaunchConfig::default())
+                    .await
+                    .unwrap();
+                assert_eq!(payload["nested_virt"], false);
+                config.spec.resources.nested_virt = Some(true);
+            }
         }
     }
 
@@ -2731,7 +2667,6 @@ mod protocol {
         let config = LaunchConfig {
             execution: ExecutionIntent::Restore,
             checkpoint_restore: Some(microsandbox_runtime::launch::CheckpointRestoreConfig {
-                legacy_windows_pit_divisor: None,
                 closure: "/tmp/checkpoint".into(),
                 checkpoint_root: "blake3:root".into(),
                 checkpoint_id: "saved".into(),

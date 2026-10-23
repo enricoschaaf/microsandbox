@@ -308,10 +308,7 @@ fn main() {
                     http_connect_proxy_auth: cfg!(feature = "net"),
                     guest_clock: true,
                     fs_state_limit: true,
-                    nested_virt: true,
-                    nested_virt_auto: false,
-                    windows_pit_recovery: cfg!(all(target_os = "windows", target_arch = "x86_64")),
-                    nested_virt_supported: Some(
+                    nested_virt: Some(
                         microsandbox_runtime::nested_virt_supported().unwrap_or(false)
                     ),
                     exec_limits: true,

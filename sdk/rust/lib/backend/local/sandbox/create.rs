@@ -351,7 +351,7 @@ impl LocalBackend {
             let root_layout = snapshot_root_layout_from_config(&config)?;
             match config.snapshot_restore_mode {
                 SnapshotRestoreMode::Full => {
-                    let mut materialized = crate::snapshot::materialize_checkpoint_for_child(
+                    let materialized = crate::snapshot::materialize_checkpoint_for_child(
                         &source,
                         &sandbox_dir,
                         &root_layout,
@@ -359,8 +359,6 @@ impl LocalBackend {
                         self.config().fs_state_limit(),
                     )
                     .await?;
-                    materialized.restore.legacy_windows_pit_divisor =
-                        config.legacy_windows_pit_divisor;
                     config.checkpoint_restore = Some(materialized.restore);
                     crate::snapshot::apply_additional_disks(&mut config, materialized.disk_mounts);
                     config.snapshot_upper_layers = materialized.upper_layers;
@@ -2442,13 +2440,17 @@ mod tests {
         let home = temp.path().join("home");
         let runtime = temp.path().join("msb");
         let firmware = temp.path().join("libkrunfw");
-        fs::write(&runtime, r#"#!/bin/sh
+        fs::write(
+            &runtime,
+            r#"#!/bin/sh
 case "$1" in
 --version) printf 'msb 0.6.18';;
-__launch-protocol) printf '%s' '{"protocols":[2,1],"nested_virt":true,"nested_virt_supported":false}';;
+__launch-protocol) printf '%s' '{"protocols":[2,1],"nested_virt":false}';;
 *) exit 1;;
 esac
-"#).unwrap();
+"#,
+        )
+        .unwrap();
         fs::set_permissions(&runtime, fs::Permissions::from_mode(0o700)).unwrap();
         fs::write(&firmware, b"not loaded before host validation").unwrap();
         let managed = serde_json::from_value(serde_json::json!({
@@ -2629,7 +2631,6 @@ esac
         }
         let mut config = builder.build().await.unwrap();
         config.checkpoint_restore = Some(microsandbox_runtime::launch::CheckpointRestoreConfig {
-            legacy_windows_pit_divisor: None,
             memory_descriptor: false,
             network_gateway_mac: None,
             external_mount_policy: Default::default(),
@@ -3162,7 +3163,6 @@ esac
         let pools = open_test_pools(&temp.path().join("test.db")).await;
         let mut config = test_config_with_rootfs("pending", bind_rootfs(temp.path().to_path_buf()));
         config.checkpoint_restore = Some(microsandbox_runtime::launch::CheckpointRestoreConfig {
-            legacy_windows_pit_divisor: None,
             memory_descriptor: false,
             network_gateway_mac: None,
             external_mount_policy: Default::default(),

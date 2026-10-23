@@ -138,7 +138,6 @@ pub(crate) async fn materialize_checkpoint_child_state(
 
     Ok(CheckpointChildMaterialization {
         restore: CheckpointRestoreConfig {
-            legacy_windows_pit_divisor: None,
             memory_descriptor: false,
             network_gateway_mac: microsandbox_runtime::checkpoint::captured_gateway_mac(
                 &child_closure.checkpoint().resources,
@@ -722,7 +721,6 @@ mod tests {
         let checkpoint_root = ObjectId::from_bytes(&checkpoint_bytes).unwrap();
         std::fs::write(source.join("checkpoint.json"), checkpoint_bytes).unwrap();
         let restore = CheckpointRestoreConfig {
-            legacy_windows_pit_divisor: None,
             memory_descriptor: false,
             network_gateway_mac: None,
             external_mount_policy: Default::default(),

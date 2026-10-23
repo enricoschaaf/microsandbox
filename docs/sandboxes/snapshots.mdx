@@ -458,22 +458,6 @@ Recapturing a still-running old sandbox does not enable enlightened VMCS. Keep t
 
 New Windows x86 full snapshots save PIT timer state. Older snapshots lack it and are rejected to prevent frozen clocks or hanging commands. Prefer a [disk-only restart](#recapture-an-older-windows-nested-snapshot).
 
-<Accordion title="Recover a known periodic timer without restarting">
-If the guest used a periodic channel-0 PIT and you know its reload divisor, supply it explicitly:
-
-```bash
-msb snapshot restore worker:old --name recovered --recover-windows-periodic-pit 4773
-```
-
-`4773` is an example for a known 250 Hz configuration, not a default. Valid divisors are 1–65536. Recovery starts a new period; it cannot reconstruct the original phase, partial settings, or other PIT channels. Do not use it for unknown settings or when exact timer continuity matters.
-
-SDK equivalents: Rust `.recover_windows_periodic_pit(divisor)`, Python `recover_windows_periodic_pit=divisor`, Node `.recoverWindowsPeriodicPit(divisor)`, and Go `WithRecoverWindowsPeriodicPIT(divisor)`.
-
-This option only applies to local Windows x86 full restores, cannot accompany disk-only restore, and does not bypass CPU, frequency, topology, or nested-state checks. Snapshots missing enlightened VMCS still need a restart.
-
-Verify commands, sleeps, and your application; capture a new full snapshot and restore it without the option. Keep the original until the replacement is verified.
-</Accordion>
-
 ### Keep the guest clock
 
 Guest-clock overrides are currently available through the CLI and Rust SDK. Other SDKs use the default policy when creating a sandbox and inherit the saved policy when restoring.

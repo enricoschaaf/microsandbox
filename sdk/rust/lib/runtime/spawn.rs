@@ -5051,7 +5051,6 @@ mod tests {
             },
         ];
         config.checkpoint_restore = Some(CheckpointRestoreConfig {
-            legacy_windows_pit_divisor: None,
             memory_descriptor: false,
             network_gateway_mac: None,
             external_mount_policy: Default::default(),

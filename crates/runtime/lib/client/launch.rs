@@ -101,22 +101,10 @@ pub struct LaunchCapabilities {
     #[serde(default)]
     pub fs_state_limit: bool,
 
-    /// The runtime honors the nested virtualization launch policy.
-    #[serde(default)]
-    pub nested_virt: bool,
-
-    /// The runtime accepts an explicit request for host-dependent nesting defaults.
-    #[serde(default)]
-    pub nested_virt_auto: bool,
-
-    /// Explicit recovery of Windows snapshots that omitted PIT state.
-    #[serde(default)]
-    pub windows_pit_recovery: bool,
-
-    /// Whether this host can honor an enabled nesting policy. None means an older
-    /// runtime cannot validate host support before destructive replacement.
+    /// Host nesting support. Presence means the runtime enforces nesting policy;
+    /// omission identifies runtimes that predate this capability.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub nested_virt_supported: Option<bool>,
+    pub nested_virt: Option<bool>,
     /// Sandbox-owned execution policy is installed and enforced by the runtime.
     #[serde(default)]
     pub exec_limits: bool,
@@ -209,10 +197,6 @@ pub struct LaunchConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nested_virt: Option<bool>,
 
-    /// Legacy automatic-policy hint, accepted for decoding but never enables nesting.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub nested_virt_auto: Option<bool>,
-
     /// Host control over the guest wall clock. Omitted when it is the default host sync, so
     /// runtimes that predate the field keep accepting ordinary launches.
     #[serde(default, skip_serializing_if = "GuestClockPolicy::is_sync")]
@@ -300,9 +284,6 @@ pub struct LaunchConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckpointRestoreConfig {
-    /// Explicit periodic PIT recovery for old Windows snapshots; a fresh timer phase is used.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub legacy_windows_pit_divisor: Option<u32>,
     /// Require the sealed memory object inherited at BRANCH_MEMORY_FD, not a serialized path.
     /// Kept inside this strict envelope so an older runtime rejects it instead of cold booting.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -583,7 +564,6 @@ mod tests {
         serde_json::to_value(LaunchConfig {
             execution: ExecutionIntent::Restore,
             checkpoint_restore: Some(CheckpointRestoreConfig {
-                legacy_windows_pit_divisor: None,
                 memory_descriptor: false,
                 network_gateway_mac: None,
                 external_mount_policy: Default::default(),
@@ -701,16 +681,6 @@ mod tests {
             let decoded = decode(encoded).unwrap();
             assert_eq!(decoded.nested_virt, enabled);
             assert_eq!(decoded.resolve_nested_virt(), enabled.unwrap_or(false));
-
-            for automatic_hint in [false, true] {
-                let automatic = LaunchConfig {
-                    nested_virt: enabled,
-                    nested_virt_auto: Some(automatic_hint),
-                    ..Default::default()
-                };
-                let decoded = decode(serde_json::to_value(automatic).unwrap()).unwrap();
-                assert_eq!(decoded.resolve_nested_virt(), enabled.unwrap_or(false));
-            }
         }
     }
 

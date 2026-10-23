@@ -103,14 +103,7 @@ impl LocalBackend {
         config.manifest_digest = Some(materialized.manifest.image.manifest_digest.clone());
 
         let cache_operation = materialized.cache_operation;
-        if config.legacy_windows_pit_divisor.is_some() && materialized.checkpoint_restore.is_none()
-        {
-            return Err(crate::MicrosandboxError::SnapshotIntegrity(
-                "periodic PIT recovery requires a full execution snapshot".into(),
-            ));
-        }
-        if let Some(mut restore) = materialized.checkpoint_restore {
-            restore.legacy_windows_pit_divisor = config.legacy_windows_pit_divisor;
+        if let Some(restore) = materialized.checkpoint_restore {
             let state = match &materialized.manifest.state {
                 crate::snapshot::SnapshotState::Checkpoint(state) => state,
                 crate::snapshot::SnapshotState::File(_) => {
