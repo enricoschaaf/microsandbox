@@ -592,6 +592,7 @@ pub enum HttpDenyResponseFormat {
 
 /// HTTP responses returned for network and secret policy denials.
 #[derive(Debug, Clone, Serialize, Deserialize, ConfigPatch)]
+#[config_patch(serde_lossless)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default)]
@@ -623,6 +624,7 @@ pub struct HttpConfig {
 ///
 /// Common, backend-visible fields are typed directly. Rich local-engine subdocuments such as policy, DNS, TLS, secrets, and interface overrides are carried as JSON so the shared contract can preserve them without depending on the local networking engine crate.
 #[derive(Debug, Clone, Serialize, Deserialize, ConfigPatch)]
+#[config_patch(serde_lossless)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default)]
@@ -811,6 +813,7 @@ pub enum PortProtocol {
 
 /// Host services exposed to a sandbox through virtio-vsock.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigPatch)]
+#[config_patch(serde_lossless)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default)]
@@ -886,6 +889,7 @@ pub struct HandoffInit {
 
 /// Sandbox lifecycle policy.
 #[derive(Debug, Default, Clone, Serialize, Deserialize, ConfigPatch)]
+#[config_patch(serde_lossless)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SandboxPolicy {
@@ -959,6 +963,7 @@ pub struct SnapshotSpec {
 ///
 /// This is the durable contract for fields that are already shared across backends. Local-only execution state such as resolved manifest digests, snapshot upper-layer paths, registry credentials, replace flags, and backend dispatch stays outside this type.
 #[derive(Debug, Default, Clone, Serialize, Deserialize, ConfigPatch)]
+#[config_patch(serde_lossless)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default)]
@@ -1027,6 +1032,7 @@ pub struct SandboxSpec {
 
 /// CPU and memory resources for a sandbox.
 #[derive(Debug, Clone, Serialize, ConfigPatch)]
+#[config_patch(serde_lossless)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SandboxResources {
@@ -1163,6 +1169,7 @@ pub enum GuestClockPolicy {
 
 /// Guest runtime options for a sandbox.
 #[derive(Debug, Clone, Serialize, Deserialize, ConfigPatch)]
+#[config_patch(serde_lossless)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default)]
@@ -2468,6 +2475,7 @@ pub const MAX_SECRET_PLACEHOLDER_BYTES: usize = 1024;
 /// The global `passthrough_hosts` field preserves historical defaults; its addition
 /// requires updating older exhaustive struct literals and patterns.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ConfigPatch)]
+#[config_patch(serde_lossless)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SecretsConfig {
@@ -2919,6 +2927,7 @@ fn validate_placeholder(placeholder: &str, secret_index: usize) -> Result<(), Se
 /// is handled by proxy tasks — these fields configure which ports/domains are
 /// intercepted and how the interception CA is sourced.
 #[derive(Debug, Clone, Serialize, Deserialize, ConfigPatch)]
+#[config_patch(serde_lossless)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct TlsConfig {
@@ -3217,6 +3226,7 @@ fn action_deny() -> Action {
 
 /// DNS interception and filtering settings. Carried in [`NetworkSpec::dns`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigPatch)]
+#[config_patch(serde_lossless)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default)]
@@ -3244,6 +3254,7 @@ impl Default for DnsConfig {
 /// sandbox slot by the local network engine. Carried in
 /// [`NetworkSpec::interface`].
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ConfigPatch)]
+#[config_patch(serde_lossless)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default)]
@@ -3295,6 +3306,7 @@ pub enum NetworkRateLimitDirection {
 
 /// Egress and ingress rate limits for a local sandbox network.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ConfigPatch)]
+#[config_patch(serde_lossless)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default)]

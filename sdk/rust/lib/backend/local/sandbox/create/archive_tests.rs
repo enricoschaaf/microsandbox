@@ -718,7 +718,8 @@ async fn corrupt_payload_is_deferred_to_create_without_replacing_target() {
     file.write_all(b"corrupt").unwrap();
     drop(file);
 
-    let local = backend(root.path(), 18).await;
+    // Exercise archive integrity without an unrelated runtime admission failure.
+    let local = backend_without_runtime(root.path());
     let mut request = replaceable_config();
     request.snapshot_reference = Some(SnapshotReference::path(source.to_string_lossy()));
     request.replace_existing = true;
