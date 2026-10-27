@@ -811,6 +811,7 @@ fn run(
         Ok::<_, RuntimeError>((relay, db, run_db_id))
     })?;
 
+    let relay_idle = relay.idle_state();
     relay = relay.with_boot_error_log_dir(config.log_dir.clone());
 
     let writeback_disk_paths = match writeback_limited_disk_paths(&config.vm) {
@@ -1197,7 +1198,7 @@ fn run(
     // Serve every host-side control operation through one runtime-owned executor and endpoint.
     // Restore constructs the executor now but withholds both public endpoints until the guest has
     // crossed its VMGenID/workload activation barrier.
-    let restore_endpoint_publication = {
+    let (restore_endpoint_publication, managed_jobs) = {
         let control = vm.control_handle();
         #[cfg(feature = "net")]
         let secrets = _network_secrets_handle.clone();
@@ -1213,6 +1214,7 @@ fn run(
             &resolved_bootstrap,
             tokio_rt.handle().clone(),
             &config.agent_sock_path,
+            Arc::clone(&relay_idle),
             Arc::clone(&shared.workload_control),
             Arc::clone(&shared.resident_paused),
             restored_agent
@@ -1231,13 +1233,17 @@ fn run(
                 }
             },
         };
+        let managed_jobs = context.executor.jobs();
         if restored_agent.is_some() {
-            Some(RestoreEndpointPublication {
-                agent_sock_path: config.agent_sock_path.clone(),
-                socket_paths: socket_paths.clone(),
-                sandbox_name: config.sandbox_name.clone(),
-                control: context,
-            })
+            (
+                Some(RestoreEndpointPublication {
+                    agent_sock_path: config.agent_sock_path.clone(),
+                    socket_paths: socket_paths.clone(),
+                    sandbox_name: config.sandbox_name.clone(),
+                    control: context,
+                }),
+                managed_jobs,
+            )
         } else {
             if let Err(error) = publish_control_endpoint(
                 control_sock_path,
@@ -1251,7 +1257,7 @@ fn run(
                 let _ = socket_paths.remove_canonical_artifacts();
                 return Err(error);
             }
-            None
+            (None, managed_jobs)
         }
     };
 
@@ -1565,6 +1571,7 @@ fn run(
         let heartbeat_shutdown_flush_timeout = shutdown_flush_timeout;
         tokio_rt.spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(1));
+            let mut last_attached_session = None;
             loop {
                 interval.tick().await;
                 if heartbeat_shared
@@ -1574,9 +1581,21 @@ fn run(
                     continue;
                 }
                 let decision = heartbeat_reader.check(idle_timeout);
+                if relay_idle.has_attached_exec_sessions().await
+                    || managed_jobs.has_active_attachments()
+                {
+                    last_attached_session = Some(std::time::Instant::now());
+                    continue;
+                }
 
                 match decision {
                     HeartbeatDecision::Idle(status) => {
+                        // A caller that just detached gets a full idle interval before shutdown.
+                        if let (Some(last), Some(timeout)) = (last_attached_session, idle_timeout)
+                            && last.elapsed() < timeout
+                        {
+                            continue;
+                        }
                         let idle_secs = idle_timeout.map(|timeout| timeout.as_secs()).unwrap_or(0);
                         tracing::info!(
                             idle_secs,
