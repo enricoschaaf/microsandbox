@@ -1062,8 +1062,8 @@ pub struct SandboxResources {
     #[serde(default, skip_serializing_if = "TransparentHugePagePolicy::is_madvise")]
     pub thp: TransparentHugePagePolicy,
 
-    /// Explicit hardware virtualization policy. Omission uses the runtime default:
-    /// enabled where supported on current runtimes, with historical behavior on older runtimes.
+    /// Explicit hardware virtualization policy. Omission inherits configuration,
+    /// with nesting disabled by default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[config_patch(nullable)]
     pub nested_virt: Option<bool>,
